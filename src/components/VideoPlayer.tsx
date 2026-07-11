@@ -1,9 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Image, ActivityIndicator, Text } from 'react-native';
-import { Video, AVPlaybackStatus } from 'expo-video';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { useEvent } from 'expo';
 import Animated, {
-  FadeIn,
-  FadeOut,
   useSharedValue,
   useAnimatedStyle,
   withTiming,
@@ -28,52 +27,57 @@ export const VideoPlayer = ({
   onError,
   aspectRatio = 9 / 16,
 }: VideoPlayerProps) => {
-  const videoRef = useRef<Video>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasError, setHasError] = useState(false);
   const [firstFrameRendered, setFirstFrameRendered] = useState(false);
   const thumbnailOpacity = useSharedValue(1);
 
-  useEffect(() => {
-    if (isVisible && shouldPlay && videoRef.current) {
-      videoRef.current.playAsync();
-    } else if (!isVisible && videoRef.current) {
-      videoRef.current.pauseAsync();
-    }
-  }, [isVisible, shouldPlay]);
+  // expo-video v3: create a player instance for this source.
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = true;
+    p.muted = false;
+  });
 
-  const handlePlaybackStatusUpdate = (status: AVPlaybackStatus) => {
-    if (status.isLoaded) {
-      if (!firstFrameRendered) {
-        setFirstFrameRendered(true);
-        setIsLoading(false);
-        thumbnailOpacity.value = withTiming(0, { duration: 200 });
-        onLoadComplete?.();
-      }
-    } else if (status.error) {
-      setHasError(true);
-      onError?.(status.error);
+  // Subscribe to status changes (idle | loading | readyToPlay | error).
+  const { status, error } = useEvent(player, 'statusChange', {
+    status: player.status,
+  });
+
+  // Play/pause driven by feed visibility — mirrors the pooled-player pattern.
+  useEffect(() => {
+    if (isVisible && shouldPlay) {
+      player.play();
+    } else {
+      player.pause();
     }
-  };
+  }, [isVisible, shouldPlay, player]);
+
+  // First-frame handoff: fade the thumbnail out once the video is ready.
+  useEffect(() => {
+    if (status === 'readyToPlay' && !firstFrameRendered) {
+      setFirstFrameRendered(true);
+      thumbnailOpacity.value = withTiming(0, { duration: 200 });
+      onLoadComplete?.();
+    }
+    if (status === 'error') {
+      onError?.(error?.message ?? 'Failed to load video');
+    }
+  }, [status, error, firstFrameRendered, onLoadComplete, onError, thumbnailOpacity]);
 
   const thumbnailAnimatedStyle = useAnimatedStyle(() => ({
     opacity: thumbnailOpacity.value,
   }));
 
+  const isLoading = status === 'loading' || status === 'idle';
+  const hasError = status === 'error';
+
   return (
-    <View
-      className="w-full h-full bg-black"
-      style={{ aspectRatio }}
-    >
-      <Video
-        ref={videoRef}
-        source={{ uri }}
+    <View className="w-full h-full bg-black" style={{ aspectRatio }}>
+      <VideoView
+        player={player}
         style={{ width: '100%', height: '100%' }}
-        onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
-        shouldPlay={shouldPlay && isVisible}
-        isLooping
-        progressUpdateIntervalMillis={500}
-        useNativeControls={false}
+        contentFit="cover"
+        nativeControls={false}
+        allowsFullscreen={false}
+        allowsPictureInPicture={false}
       />
 
       {/* Thumbnail overlay - fades out when video first frame loads */}
@@ -89,6 +93,7 @@ export const VideoPlayer = ({
             },
             thumbnailAnimatedStyle,
           ]}
+          pointerEvents="none"
         >
           <Image
             source={{ uri: thumbnail }}
@@ -107,9 +112,7 @@ export const VideoPlayer = ({
       {/* Error state */}
       {hasError && (
         <View className="absolute inset-0 items-center justify-center bg-black/70">
-          <Text className="text-white text-center">
-            Failed to load video
-          </Text>
+          <Text className="text-white text-center">Failed to load video</Text>
         </View>
       )}
     </View>

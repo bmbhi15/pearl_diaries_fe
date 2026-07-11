@@ -131,7 +131,6 @@ export const ReelsScreen = () => {
     <View className="flex-1 bg-black">
       <ReelsFeed
         posts={posts}
-        currentUserId={user?.id}
         onLoadMore={handleLoadMore}
         onPostLike={handlePostLike}
         onPostUnlike={handlePostUnlike}

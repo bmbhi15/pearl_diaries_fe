@@ -43,8 +43,9 @@
     }
   },
   "include": [
-    "app",
+    "App.tsx",
     "src",
+    "nativewind-env.d.ts",
     "**/*.ts",
     "**/*.tsx"
   ],

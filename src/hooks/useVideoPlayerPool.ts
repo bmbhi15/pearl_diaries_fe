@@ -1,5 +1,5 @@
 import { useRef, useCallback, useEffect } from 'react';
-import { VideoPreloadState } from '@types/index';
+import { VideoPreloadState } from '../types/index';
 
 interface PooledPlayer {
   id: string;
