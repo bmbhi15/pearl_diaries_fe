@@ -1,141 +1,125 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Text } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { ReelsFeed } from '../components/ReelsFeed';
+import { PearlLogo } from '../components/PearlLogo';
 import { Post } from '../types/index';
 
+const now = new Date().toISOString();
+
+const mockUser = (id: string, name: string, college: string, img: number) => ({
+  id,
+  name,
+  email: `${id}@example.com`,
+  avatar: `https://i.pravatar.cc/150?img=${img}`,
+  collegeName: college,
+  createdAt: now,
+});
+
+const MOCK_REELS: Post[] = [
+  {
+    id: 'r1',
+    userId: 'u1',
+    user: mockUser('u1', 'Ananya Sharma', 'BITS Hyderabad', 47),
+    type: 'video',
+    content: {
+      uri: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+      thumbnail: 'https://picsum.photos/seed/pearl1/540/960',
+      duration: 15,
+    },
+    caption: 'The crowd went WILD at Pro Show tonight 🔥✨ #Pearl2026',
+    eventTags: ['Pro Show Night'],
+    likes: 2450,
+    comments: 128,
+    shares: 86,
+    isLiked: false,
+    createdAt: now,
+    updatedAt: now,
+  },
+  {
+    id: 'r2',
+    userId: 'u2',
+    user: mockUser('u2', 'Rohan Verma', 'IIT Hyderabad', 12),
+    type: 'video',
+    content: {
+      uri: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
+      thumbnail: 'https://picsum.photos/seed/pearl2/540/960',
+      duration: 20,
+    },
+    caption: 'Street battle finals — that last move though 💀',
+    eventTags: ['Street Dance Battle'],
+    likes: 5120,
+    comments: 284,
+    shares: 152,
+    isLiked: false,
+    createdAt: now,
+    updatedAt: now,
+  },
+  {
+    id: 'r3',
+    userId: 'u3',
+    user: mockUser('u3', 'Priya Nair', 'BITS Hyderabad', 32),
+    type: 'video',
+    content: {
+      uri: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+      thumbnail: 'https://picsum.photos/seed/pearl3/540/960',
+      duration: 25,
+    },
+    caption: 'Battle of Bands sound check — tonight is going to be legendary 🎸',
+    eventTags: ['Battle of Bands', 'EDM Night'],
+    likes: 7890,
+    comments: 445,
+    shares: 320,
+    isLiked: true,
+    createdAt: now,
+    updatedAt: now,
+  },
+];
+
 export const ReelsScreen = () => {
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const insets = useSafeAreaInsets();
+  const [posts, setPosts] = useState<Post[]>(MOCK_REELS);
 
-  // Mock data - Replace with API call
-  useEffect(() => {
-    const mockPosts: Post[] = [
-      {
-        id: '1',
-        userId: 'user1',
-        type: 'video',
-        content: {
-          uri: 'https://commondatastorage.googleapis.com/gtv-videos-library/sample/ForBiggerBlazes.mp4',
-          thumbnail: 'https://via.placeholder.com/400x700?text=Video+1',
-          duration: 15,
-          aspectRatio: 9 / 16,
-        },
-        eventTags: ['Inauguration', 'Tech Fest'],
-        likes: 245,
-        comments: 12,
-        shares: 8,
-        isLiked: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        user: {
-          id: 'user1',
-          name: 'Aarav Patel',
-          email: 'aarav@example.com',
-          avatar: 'https://via.placeholder.com/40x40?text=User1',
-          createdAt: new Date().toISOString(),
-        },
-      },
-      {
-        id: '2',
-        userId: 'user2',
-        type: 'video',
-        content: {
-          uri: 'https://commondatastorage.googleapis.com/gtv-videos-library/sample/ElephantsDream.mp4',
-          thumbnail: 'https://via.placeholder.com/400x700?text=Video+2',
-          duration: 20,
-          aspectRatio: 9 / 16,
-        },
-        eventTags: ['Cultural Night'],
-        likes: 512,
-        comments: 28,
-        shares: 15,
-        isLiked: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        user: {
-          id: 'user2',
-          name: 'Priya Singh',
-          email: 'priya@example.com',
-          avatar: 'https://via.placeholder.com/40x40?text=User2',
-          createdAt: new Date().toISOString(),
-        },
-      },
-      {
-        id: '3',
-        userId: 'user3',
-        type: 'video',
-        content: {
-          uri: 'https://commondatastorage.googleapis.com/gtv-videos-library/sample/BigBuckBunny.mp4',
-          thumbnail: 'https://via.placeholder.com/400x700?text=Video+3',
-          duration: 25,
-          aspectRatio: 9 / 16,
-        },
-        eventTags: ['Sports Event', 'Pearl 2024'],
-        likes: 789,
-        comments: 45,
-        shares: 32,
-        isLiked: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        user: {
-          id: 'user3',
-          name: 'Rahul Kumar',
-          email: 'rahul@example.com',
-          avatar: 'https://via.placeholder.com/40x40?text=User3',
-          createdAt: new Date().toISOString(),
-        },
-      },
-    ];
-
-    setPosts(mockPosts);
-    setIsLoading(false);
-  }, []);
-
-  const handleLoadMore = useCallback(() => {
-    // API call to load more posts
-    console.log('Load more posts');
-  }, []);
-
-  const handlePostLike = useCallback((postId: string) => {
+  const handleLike = useCallback((postId: string) => {
     setPosts((prev) =>
-      prev.map((post) =>
-        post.id === postId ? { ...post, likes: post.likes + 1 } : post
+      prev.map((p) => (p.id === postId ? { ...p, likes: p.likes + 1, isLiked: true } : p))
+    );
+  }, []);
+
+  const handleUnlike = useCallback((postId: string) => {
+    setPosts((prev) =>
+      prev.map((p) =>
+        p.id === postId ? { ...p, likes: Math.max(0, p.likes - 1), isLiked: false } : p
       )
     );
   }, []);
-
-  const handlePostUnlike = useCallback((postId: string) => {
-    setPosts((prev) =>
-      prev.map((post) =>
-        post.id === postId
-          ? { ...post, likes: Math.max(0, post.likes - 1) }
-          : post
-      )
-    );
-  }, []);
-
-  const handleComment = useCallback((postId: string) => {
-    // Navigate to comment screen or open modal
-    console.log('Comment on post:', postId);
-  }, []);
-
-  if (isLoading) {
-    return (
-      <View className="flex-1 items-center justify-center bg-black">
-        <Text className="text-white">Loading...</Text>
-      </View>
-    );
-  }
 
   return (
     <View className="flex-1 bg-black">
       <ReelsFeed
         posts={posts}
-        onLoadMore={handleLoadMore}
-        onPostLike={handlePostLike}
-        onPostUnlike={handlePostUnlike}
-        onComment={handleComment}
+        onPostLike={handleLike}
+        onPostUnlike={handleUnlike}
+        onComment={() => {}}
       />
+
+      {/* Floating brand header over the feed */}
+      <LinearGradient
+        colors={['rgba(0,0,0,0.65)', 'transparent']}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: insets.top + 76 }}
+        pointerEvents="none"
+      />
+      <Animated.View
+        entering={FadeInDown.duration(600)}
+        className="absolute left-5 flex-row items-center"
+        style={{ top: insets.top + 12 }}
+        pointerEvents="none"
+      >
+        <PearlLogo size={30} />
+        <Text className="text-white text-lg font-extrabold ml-2.5 tracking-tight">Reels</Text>
+      </Animated.View>
     </View>
   );
 };

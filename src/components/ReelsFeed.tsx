@@ -1,230 +1,241 @@
-import React, { useCallback, useState, useMemo, useRef } from 'react';
-import {
-  View,
-  FlatList,
-  Dimensions,
-  Pressable,
-  Text,
-  Image,
-} from 'react-native';
-import { Post, User } from '../types/index';
+import React, { useCallback, useState, useRef } from 'react';
+import { View, FlatList, Pressable, Text, Image, ViewToken } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSequence,
+  withSpring,
+  withTiming,
+  withDelay,
+} from 'react-native-reanimated';
+import { Post } from '../types/index';
 import { VideoPlayer } from './VideoPlayer';
-import { useVideoPlayerPool } from '../hooks/useVideoPlayerPool';
-import Animated, { FadeInDown, FadeOutUp } from 'react-native-reanimated';
+import { COLORS, GRADIENTS } from '../constants/theme';
 
 interface ReelsFeedProps {
   posts: Post[];
-  currentUserId?: string;
   onLoadMore?: () => void;
   onPostLike?: (postId: string) => void;
   onPostUnlike?: (postId: string) => void;
   onComment?: (postId: string) => void;
 }
 
-const { height: screenHeight } = Dimensions.get('window');
+const formatCount = (n: number) =>
+  n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n);
+
+/** Right-rail action button with a springy pop on press. */
+const RailButton = ({
+  icon,
+  label,
+  tint = '#fff',
+  onPress,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label?: string;
+  tint?: string;
+  onPress?: () => void;
+}) => {
+  const scale = useSharedValue(1);
+  const style = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  return (
+    <Pressable
+      onPress={() => {
+        scale.value = withSequence(
+          withSpring(1.35, { damping: 6, stiffness: 300 }),
+          withSpring(1, { damping: 10 })
+        );
+        onPress?.();
+      }}
+      className="items-center mb-6"
+      hitSlop={8}
+    >
+      <Animated.View style={style}>
+        <Ionicons name={icon} size={30} color={tint} />
+      </Animated.View>
+      {label !== undefined && (
+        <Text className="text-white text-xs font-semibold mt-1.5">{label}</Text>
+      )}
+    </Pressable>
+  );
+};
 
 interface ReelItemProps {
   post: Post;
+  height: number;
   isVisible: boolean;
-  onLike?: () => void;
-  onComment?: () => void;
-  onLoadComplete?: () => void;
+  onLike: (liked: boolean) => void;
+  onComment: () => void;
 }
 
-const ReelItem = ({
-  post,
-  isVisible,
-  onLike,
-  onComment,
-  onLoadComplete,
-}: ReelItemProps) => {
-  const [isLiked, setIsLiked] = useState(post.isLiked);
+const ReelItem = ({ post, height, isVisible, onLike, onComment }: ReelItemProps) => {
+  const insets = useSafeAreaInsets();
+  const [liked, setLiked] = useState(post.isLiked);
+  const bigHeart = useSharedValue(0);
 
-  const handleLikePress = useCallback(() => {
-    setIsLiked(!isLiked);
-    onLike?.();
-  }, [isLiked, onLike]);
+  const toggleLike = useCallback(() => {
+    const next = !liked;
+    setLiked(next);
+    onLike(next);
+    if (next) {
+      // Instagram-style center heart burst
+      bigHeart.value = withSequence(
+        withSpring(1, { damping: 9, stiffness: 220 }),
+        withDelay(350, withTiming(0, { duration: 250 }))
+      );
+    }
+  }, [liked, onLike, bigHeart]);
+
+  const bigHeartStyle = useAnimatedStyle(() => ({
+    opacity: bigHeart.value,
+    transform: [{ scale: 0.6 + bigHeart.value * 0.8 }],
+  }));
 
   return (
-    <Animated.View
-      entering={FadeInDown}
-      exiting={FadeOutUp}
-      style={{ height: screenHeight }}
-      className="bg-black relative"
-    >
-      {/* Video Player */}
+    <View style={{ height }} className="bg-black">
       <VideoPlayer
         uri={post.content.uri}
         thumbnail={post.content.thumbnail}
         isVisible={isVisible}
         shouldPlay={isVisible}
-        onLoadComplete={onLoadComplete}
-        aspectRatio={post.content.aspectRatio || 9 / 16}
       />
 
-      {/* User Info & Overlay */}
-      <View className="absolute bottom-0 left-0 right-0 p-4 pb-20">
-        {/* User Info */}
-        <View className="flex-row items-center mb-4">
-          {post.user?.avatar && (
+      {/* Center heart burst overlay */}
+      <Animated.View
+        pointerEvents="none"
+        style={[bigHeartStyle, { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }]}
+        className="items-center justify-center"
+      >
+        <Ionicons name="heart" size={110} color="#fff" />
+      </Animated.View>
+
+      {/* Bottom gradient for legibility */}
+      <LinearGradient
+        colors={GRADIENTS.overlay}
+        style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: height * 0.4 }}
+        pointerEvents="none"
+      />
+
+      {/* Meta: user, caption, event tags */}
+      <View
+        className="absolute left-4 right-20"
+        style={{ bottom: insets.bottom + 18 }}
+      >
+        <View className="flex-row items-center mb-3">
+          <LinearGradient
+            colors={GRADIENTS.brand}
+            style={{ width: 42, height: 42, borderRadius: 21, padding: 2 }}
+          >
             <Image
-              source={{ uri: post.user.avatar }}
-              className="w-10 h-10 rounded-full mr-3"
+              source={{ uri: post.user?.avatar }}
+              style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: COLORS.surface }}
             />
-          )}
-          <View>
-            <Text className="text-white font-bold">
-              {post.user?.name || 'Anonymous'}
-            </Text>
-            {post.eventTags.length > 0 && (
-              <Text className="text-gray-300 text-xs">
-                at {post.eventTags.join(', ')}
-              </Text>
-            )}
+          </LinearGradient>
+          <View className="ml-3">
+            <Text className="text-white font-bold">{post.user?.name ?? 'Anonymous'}</Text>
+            <Text className="text-slate-300 text-xs">{post.user?.collegeName ?? 'Pearl 2026'}</Text>
           </View>
         </View>
 
-        {/* Caption */}
-        {post.content.uri && (
-          <Text className="text-white text-sm mb-4 leading-5">
-            {post.content.uri}
+        {post.caption && (
+          <Text className="text-white/90 text-sm leading-5 mb-2.5" numberOfLines={2}>
+            {post.caption}
           </Text>
         )}
+
+        <View className="flex-row flex-wrap">
+          {post.eventTags.map((tag) => (
+            <View
+              key={tag}
+              className="flex-row items-center rounded-full px-3 py-1.5 mr-2 mb-1"
+              style={{ backgroundColor: 'rgba(124,58,237,0.45)' }}
+            >
+              <Ionicons name="sparkles" size={11} color="#E9D5FF" />
+              <Text className="text-purple-100 text-xs font-semibold ml-1">{tag}</Text>
+            </View>
+          ))}
+        </View>
       </View>
 
-      {/* Action Buttons (Right Side) */}
-      <View className="absolute right-4 bottom-20 items-center gap-6">
-        {/* Like Button */}
-        <Pressable
-          onPress={handleLikePress}
-          className="items-center"
-        >
-          <View className="w-12 h-12 rounded-full bg-black/50 items-center justify-center">
-            <Text className={`text-2xl ${isLiked ? 'text-red-500' : 'text-white'}`}>
-              ❤️
-            </Text>
-          </View>
-          <Text className="text-white text-xs mt-1 font-semibold">
-            {post.likes + (isLiked ? 1 : 0)}
-          </Text>
-        </Pressable>
-
-        {/* Comment Button */}
-        <Pressable
-          onPress={onComment}
-          className="items-center"
-        >
-          <View className="w-12 h-12 rounded-full bg-black/50 items-center justify-center">
-            <Text className="text-2xl">💬</Text>
-          </View>
-          <Text className="text-white text-xs mt-1 font-semibold">
-            {post.comments}
-          </Text>
-        </Pressable>
-
-        {/* Share Button */}
-        <Pressable className="items-center">
-          <View className="w-12 h-12 rounded-full bg-black/50 items-center justify-center">
-            <Text className="text-2xl">↗️</Text>
-          </View>
-          <Text className="text-white text-xs mt-1 font-semibold">
-            {post.shares}
-          </Text>
-        </Pressable>
+      {/* Right action rail */}
+      <View className="absolute right-3 items-center" style={{ bottom: insets.bottom + 24 }}>
+        <RailButton
+          icon={liked ? 'heart' : 'heart-outline'}
+          tint={liked ? '#F43F5E' : '#fff'}
+          label={formatCount(post.likes + (liked && !post.isLiked ? 1 : 0))}
+          onPress={toggleLike}
+        />
+        <RailButton icon="chatbubble-outline" label={formatCount(post.comments)} onPress={onComment} />
+        <RailButton icon="paper-plane-outline" label={formatCount(post.shares)} />
+        <RailButton icon="ellipsis-vertical" />
       </View>
-    </Animated.View>
+    </View>
   );
 };
 
 export const ReelsFeed = ({
   posts,
-  currentUserId,
   onLoadMore,
   onPostLike,
   onPostUnlike,
   onComment,
 }: ReelsFeedProps) => {
   const [visibleIndex, setVisibleIndex] = useState(0);
-  const flatListRef = useRef<FlatList>(null);
-  const { acquirePlayer, releasePlayer, markPlayerReady } = useVideoPlayerPool(3);
+  const [containerHeight, setContainerHeight] = useState(0);
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
 
-  // Sliding window preload: load current, next, and prev
-  const preloadIndices = useMemo(() => {
-    return {
-      prev: Math.max(0, visibleIndex - 1),
-      current: visibleIndex,
-      next: Math.min(posts.length - 1, visibleIndex + 1),
-    };
-  }, [visibleIndex, posts.length]);
+  const onViewableItemsChanged = useRef(
+    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      const first = viewableItems[0];
+      if (first?.index != null) setVisibleIndex(first.index);
+    }
+  ).current;
 
-  const handleViewableItemsChanged = useCallback(
-    ({ viewableItems }: { viewableItems: any[] }) => {
-      if (viewableItems.length > 0) {
-        const newIndex = viewableItems[0].index;
-        setVisibleIndex(newIndex);
-
-        // Trigger load more when near end
-        if (newIndex >= posts.length - 3) {
-          onLoadMore?.();
-        }
-      }
-    },
-    [posts.length, onLoadMore]
+  const renderItem = useCallback(
+    ({ item, index }: { item: Post; index: number }) => (
+      <ReelItem
+        post={item}
+        height={containerHeight}
+        isVisible={index === visibleIndex}
+        onLike={(liked) => (liked ? onPostLike?.(item.id) : onPostUnlike?.(item.id))}
+        onComment={() => onComment?.(item.id)}
+      />
+    ),
+    [containerHeight, visibleIndex, onPostLike, onPostUnlike, onComment]
   );
-
-  const handlePostLike = useCallback(
-    (postId: string) => {
-      onPostLike?.(postId);
-    },
-    [onPostLike]
-  );
-
-  const handlePostComment = useCallback(
-    (postId: string) => {
-      onComment?.(postId);
-    },
-    [onComment]
-  );
-
-  const renderReel = useCallback(
-    ({ item, index }: { item: Post; index: number }) => {
-      const isVisible = index === preloadIndices.current;
-
-      return (
-        <ReelItem
-          post={item}
-          isVisible={isVisible}
-          onLike={() => handlePostLike(item.id)}
-          onComment={() => handlePostComment(item.id)}
-          onLoadComplete={() => markPlayerReady(`player-${index}`)}
-        />
-      );
-    },
-    [preloadIndices, handlePostLike, handlePostComment, markPlayerReady]
-  );
-
-  const keyExtractor = useCallback((item: Post) => item.id, []);
 
   return (
-    <FlatList
-      ref={flatListRef}
-      data={posts}
-      renderItem={renderReel}
-      keyExtractor={keyExtractor}
-      pagingEnabled
-      snapToInterval={screenHeight}
-      snapToAlignment="start"
-      decelerationRate="fast"
-      showsVerticalScrollIndicator={false}
-      scrollEventThrottle={16}
-      onViewableItemsChanged={handleViewableItemsChanged}
-      viewabilityConfig={{
-        itemVisiblePercentThreshold: 50,
-      }}
-      removeClippedSubviews={true}
-      maxToRenderPerBatch={3}
-      updateCellsBatchingPeriod={50}
-      initialNumToRender={2}
-    />
+    <View
+      className="flex-1 bg-black"
+      onLayout={(e) => setContainerHeight(e.nativeEvent.layout.height)}
+    >
+      {containerHeight > 0 && (
+        <FlatList
+          data={posts}
+          renderItem={renderItem}
+          keyExtractor={(item) => item.id}
+          pagingEnabled
+          snapToInterval={containerHeight}
+          snapToAlignment="start"
+          decelerationRate="fast"
+          showsVerticalScrollIndicator={false}
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
+          onEndReached={onLoadMore}
+          onEndReachedThreshold={2}
+          getItemLayout={(_, index) => ({
+            length: containerHeight,
+            offset: containerHeight * index,
+            index,
+          })}
+          removeClippedSubviews
+          maxToRenderPerBatch={3}
+          windowSize={5}
+          initialNumToRender={2}
+        />
+      )}
+    </View>
   );
 };

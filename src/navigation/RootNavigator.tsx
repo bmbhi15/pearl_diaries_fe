@@ -1,4 +1,5 @@
 import React from 'react';
+import { View, ActivityIndicator } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,109 +7,67 @@ import { ReelsScreen } from '../screens/ReelsScreen';
 import { PostsScreen } from '../screens/PostsScreen';
 import { CreatePostScreen } from '../screens/CreatePostScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
+import { LoginScreen } from '../screens/auth/LoginScreen';
+import { ProfileSetupScreen } from '../screens/auth/ProfileSetupScreen';
+import { useAuth } from '../context/AuthContext';
+import { COLORS } from '../constants/theme';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
-const ReelsStack = () => (
-  <Stack.Navigator
-    screenOptions={{
-      headerShown: false,
-    }}
-  >
-    <Stack.Screen name="ReelsMain" component={ReelsScreen} />
-  </Stack.Navigator>
-);
+const TAB_ICONS: Record<string, { on: keyof typeof Ionicons.glyphMap; off: keyof typeof Ionicons.glyphMap }> = {
+  Reels: { on: 'play-circle', off: 'play-circle-outline' },
+  Explore: { on: 'grid', off: 'grid-outline' },
+  Create: { on: 'add-circle', off: 'add-circle-outline' },
+  Profile: { on: 'person', off: 'person-outline' },
+};
 
-const PostsStack = () => (
-  <Stack.Navigator
-    screenOptions={{
+const MainTabs = () => (
+  <Tab.Navigator
+    screenOptions={({ route }) => ({
       headerShown: false,
-    }}
+      tabBarActiveTintColor: COLORS.primaryLight,
+      tabBarInactiveTintColor: '#64748B',
+      tabBarStyle: {
+        backgroundColor: COLORS.bg,
+        borderTopColor: COLORS.border,
+        borderTopWidth: 1,
+        elevation: 0,
+      },
+      tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+      tabBarIcon: ({ focused, color, size }) => {
+        const icons = TAB_ICONS[route.name] ?? TAB_ICONS.Reels;
+        return <Ionicons name={focused ? icons.on : icons.off} size={size} color={color} />;
+      },
+    })}
   >
-    <Stack.Screen name="PostsMain" component={PostsScreen} />
-  </Stack.Navigator>
-);
-
-const CreateStack = () => (
-  <Stack.Navigator
-    screenOptions={{
-      headerShown: false,
-    }}
-  >
-    <Stack.Screen name="CreateMain" component={CreatePostScreen} />
-  </Stack.Navigator>
-);
-
-const ProfileStack = () => (
-  <Stack.Navigator
-    screenOptions={{
-      headerShown: false,
-    }}
-  >
-    <Stack.Screen name="ProfileMain" component={ProfileScreen} />
-  </Stack.Navigator>
+    <Tab.Screen name="Reels" component={ReelsScreen} />
+    <Tab.Screen name="Explore" component={PostsScreen} />
+    <Tab.Screen name="Create" component={CreatePostScreen} />
+    <Tab.Screen name="Profile" component={ProfileScreen} />
+  </Tab.Navigator>
 );
 
 export const RootNavigator = () => {
+  const { stage } = useAuth();
+
+  if (stage === 'loading') {
+    return (
+      <View className="flex-1 items-center justify-center" style={{ backgroundColor: COLORS.bg }}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+      </View>
+    );
+  }
+
   return (
-    <Tab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarActiveTintColor: '#7C3AED',
-        tabBarInactiveTintColor: '#9CA3AF',
-        tabBarStyle: {
-          backgroundColor: '#FFFFFF',
-          borderTopColor: '#E5E7EB',
-          borderTopWidth: 1,
-        },
-        tabBarIcon: ({ focused, color, size }) => {
-          let iconName: keyof typeof Ionicons.glyphMap;
-
-          if (route.name === 'Reels') {
-            iconName = focused ? 'play' : 'play-outline';
-          } else if (route.name === 'Posts') {
-            iconName = focused ? 'grid' : 'grid-outline';
-          } else if (route.name === 'Create') {
-            iconName = focused ? 'add-circle' : 'add-circle-outline';
-          } else if (route.name === 'Profile') {
-            iconName = focused ? 'person' : 'person-outline';
-          } else {
-            iconName = 'home';
-          }
-
-          return <Ionicons name={iconName} size={size} color={color} />;
-        },
-      })}
+    <Stack.Navigator
+      screenOptions={{ headerShown: false, contentStyle: { backgroundColor: COLORS.bg } }}
     >
-      <Tab.Screen
-        name="Reels"
-        component={ReelsStack}
-        options={{
-          title: 'Reels',
-        }}
-      />
-      <Tab.Screen
-        name="Posts"
-        component={PostsStack}
-        options={{
-          title: 'Posts',
-        }}
-      />
-      <Tab.Screen
-        name="Create"
-        component={CreateStack}
-        options={{
-          title: 'Create',
-        }}
-      />
-      <Tab.Screen
-        name="Profile"
-        component={ProfileStack}
-        options={{
-          title: 'Profile',
-        }}
-      />
-    </Tab.Navigator>
+      {stage === 'signedOut' && <Stack.Screen name="Login" component={LoginScreen} />}
+      {stage === 'needsProfile' && (
+        <Stack.Screen name="ProfileSetup" component={ProfileSetupScreen} />
+      )}
+      {stage === 'signedIn' && <Stack.Screen name="Main" component={MainTabs} />}
+    </Stack.Navigator>
   );
 };

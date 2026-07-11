@@ -25,7 +25,7 @@ export const VideoPlayer = ({
   shouldPlay,
   onLoadComplete,
   onError,
-  aspectRatio = 9 / 16,
+  aspectRatio,
 }: VideoPlayerProps) => {
   const [firstFrameRendered, setFirstFrameRendered] = useState(false);
   const thumbnailOpacity = useSharedValue(1);
@@ -70,7 +70,10 @@ export const VideoPlayer = ({
   const hasError = status === 'error';
 
   return (
-    <View className="w-full h-full bg-black" style={{ aspectRatio }}>
+    <View
+      className="w-full h-full bg-black"
+      style={aspectRatio ? { aspectRatio } : undefined}
+    >
       <VideoView
         player={player}
         style={{ width: '100%', height: '100%' }}

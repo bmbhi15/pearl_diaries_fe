@@ -16,6 +16,7 @@ export interface Post {
   user?: User;
   type: 'video' | 'carousel';
   content: PostContent;
+  caption?: string;
   eventTags: string[];
   likes: number;
   comments: number;
