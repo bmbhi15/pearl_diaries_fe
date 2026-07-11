@@ -1,7 +1,7 @@
 import React from 'react';
-import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
-import { RootNavigator } from '@/src/navigation/RootNavigator';
+import { RootNavigator } from './src/navigation/RootNavigator';
+import { StatusBar } from 'expo-status-bar';
 
 export default function App() {
   return (

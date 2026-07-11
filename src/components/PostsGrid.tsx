@@ -7,7 +7,7 @@ import {
   Text,
   Dimensions,
 } from 'react-native';
-import { Post } from '@types/index';
+import { Post } from '../types/index';
 import Animated, { FadeIn } from 'react-native-reanimated';
 
 interface PostsGridProps {

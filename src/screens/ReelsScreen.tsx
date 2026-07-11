@@ -1,11 +1,9 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { View, Text } from 'react-native';
-import { ReelsFeed } from '@components/ReelsFeed';
-import { Post } from '@types/index';
-import { useClerk } from '@clerk/clerk-expo';
+import { ReelsFeed } from '../components/ReelsFeed';
+import { Post } from '../types/index';
 
 export const ReelsScreen = () => {
-  const { user } = useClerk();
   const [posts, setPosts] = useState<Post[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 

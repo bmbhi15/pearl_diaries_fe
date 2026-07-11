@@ -2,10 +2,10 @@ import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { ReelsScreen } from '@screens/ReelsScreen';
-import { PostsScreen } from '@screens/PostsScreen';
-import { CreatePostScreen } from '@screens/CreatePostScreen';
-import { ProfileScreen } from '@screens/ProfileScreen';
+import { ReelsScreen } from '../screens/ReelsScreen';
+import { PostsScreen } from '../screens/PostsScreen';
+import { CreatePostScreen } from '../screens/CreatePostScreen';
+import { ProfileScreen } from '../screens/ProfileScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();

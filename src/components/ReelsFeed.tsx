@@ -7,9 +7,9 @@ import {
   Text,
   Image,
 } from 'react-native';
-import { Post, User } from '@types/index';
+import { Post, User } from '../types/index';
 import { VideoPlayer } from './VideoPlayer';
-import { useVideoPlayerPool } from '@hooks/useVideoPlayerPool';
+import { useVideoPlayerPool } from '../hooks/useVideoPlayerPool';
 import Animated, { FadeInDown, FadeOutUp } from 'react-native-reanimated';
 
 interface ReelsFeedProps {

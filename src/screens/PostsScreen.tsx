@@ -1,11 +1,9 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { View, Text, Pressable } from 'react-native';
-import { PostsGrid } from '@components/PostsGrid';
-import { Post } from '@types/index';
-import { useClerk } from '@clerk/clerk-expo';
+import { PostsGrid } from '../components/PostsGrid';
+import { Post } from '../types/index';
 
 export const PostsScreen = ({ navigation }: any) => {
-  const { user } = useClerk();
   const [posts, setPosts] = useState<Post[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 

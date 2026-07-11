@@ -1,9 +1,11 @@
 import React from 'react';
 import { View, Text, Pressable, ScrollView } from 'react-native';
-import { useClerk } from '@clerk/clerk-expo';
 
 export const ProfileScreen = () => {
-  const { user, signOut } = useClerk();
+  const mockUser = {
+    name: 'Demo User',
+    email: 'demo@pearlfestival.com',
+  };
 
   return (
     <ScrollView className="flex-1 bg-white">
@@ -12,16 +14,16 @@ export const ProfileScreen = () => {
 
         <View className="bg-gray-100 p-4 rounded-lg mb-4">
           <Text className="text-gray-600 mb-2">Email</Text>
-          <Text className="text-lg font-semibold">{user?.emailAddresses[0]?.emailAddress}</Text>
+          <Text className="text-lg font-semibold">{mockUser.email}</Text>
         </View>
 
         <View className="bg-gray-100 p-4 rounded-lg mb-6">
           <Text className="text-gray-600 mb-2">Name</Text>
-          <Text className="text-lg font-semibold">{user?.fullName || 'Not set'}</Text>
+          <Text className="text-lg font-semibold">{mockUser.name}</Text>
         </View>
 
         <Pressable
-          onPress={() => signOut()}
+          onPress={() => console.log('Sign out')}
           className="bg-red-500 p-4 rounded-lg items-center"
         >
           <Text className="text-white font-bold text-lg">Sign Out</Text>
