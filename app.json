@@ -19,6 +19,14 @@
         "WRITE_EXTERNAL_STORAGE",
         "INTERNET"
       ]
-    }
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Pearl Diaries needs access to your photos and videos so you can share festival moments."
+        }
+      ]
+    ]
   }
 }

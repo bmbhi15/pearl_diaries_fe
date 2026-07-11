@@ -1,40 +1,153 @@
-import React, { useState } from 'react';
-import { View, Text, Pressable, ScrollView, TextInput } from 'react-native';
+import React, { useCallback, useRef, useState } from 'react';
+import { View, Text, Pressable, ScrollView, TextInput, Image } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown, FadeIn, ZoomIn } from 'react-native-reanimated';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { GradientButton } from '../components/GradientButton';
 import { COLORS, PEARL_EVENTS } from '../constants/theme';
+import { uploadPost, PickedMedia, UploadHandle } from '../services/uploadService';
 
 type MediaKind = 'reel' | 'carousel';
+const MAX_CAROUSEL = 10;
+
+const toPicked = (a: ImagePicker.ImagePickerAsset): PickedMedia => ({
+  uri: a.uri,
+  type: a.type === 'video' ? 'video' : 'image',
+  mimeType: a.mimeType ?? undefined,
+  fileName: a.fileName ?? undefined,
+  fileSize: a.fileSize ?? undefined,
+  durationMs: a.duration ?? undefined,
+  width: a.width,
+  height: a.height,
+});
+
+const formatDuration = (ms?: number) => {
+  if (!ms) return '';
+  const s = Math.round(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+
+/** Muted, looping inline preview of the picked reel video. */
+const VideoPreview = ({ uri }: { uri: string }) => {
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = true;
+    p.muted = true;
+    p.play();
+  });
+  return (
+    <VideoView
+      player={player}
+      style={{ width: '100%', height: '100%' }}
+      contentFit="cover"
+      nativeControls={false}
+    />
+  );
+};
 
 export const CreatePostScreen = () => {
   const [kind, setKind] = useState<MediaKind>('reel');
-  const [mediaPicked, setMediaPicked] = useState(false);
+  const [media, setMedia] = useState<PickedMedia[]>([]);
   const [caption, setCaption] = useState('');
   const [tags, setTags] = useState<string[]>([]);
-  const [submitting, setSubmitting] = useState(false);
+  const [pickError, setPickError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [done, setDone] = useState(false);
+  const uploadRef = useRef<UploadHandle | null>(null);
+
+  const switchKind = (next: MediaKind) => {
+    if (uploading) return;
+    setKind(next);
+    setMedia([]);
+    setPickError(null);
+  };
+
+  const ensurePermission = async (): Promise<boolean> => {
+    const { status, canAskAgain } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status === 'granted') return true;
+    setPickError(
+      canAskAgain
+        ? 'We need gallery access to pick media.'
+        : 'Gallery access is blocked — enable Photos permission in system settings.'
+    );
+    return false;
+  };
+
+  /** Reel: pick a single video from the gallery. */
+  const pickVideo = async () => {
+    setPickError(null);
+    if (!(await ensurePermission())) return;
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['videos'],
+      allowsMultipleSelection: false,
+      videoMaxDuration: 60,
+      quality: 1,
+    });
+    if (!result.canceled && result.assets.length > 0) {
+      setMedia([toPicked(result.assets[0])]);
+    }
+  };
+
+  /** Carousel: pick up to 10 photos, appending to what's already picked. */
+  const pickImages = async () => {
+    setPickError(null);
+    if (!(await ensurePermission())) return;
+    const remaining = MAX_CAROUSEL - media.length;
+    if (remaining <= 0) return;
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      selectionLimit: remaining,
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets.length > 0) {
+      setMedia((prev) => {
+        const seen = new Set(prev.map((m) => m.uri));
+        const fresh = result.assets.map(toPicked).filter((m) => !seen.has(m.uri));
+        return [...prev, ...fresh].slice(0, MAX_CAROUSEL);
+      });
+    }
+  };
+
+  const removeImage = (uri: string) => setMedia((prev) => prev.filter((m) => m.uri !== uri));
 
   const toggleTag = (t: string) =>
     setTags((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
 
-  const canPost = mediaPicked && tags.length > 0 && !submitting;
-
-  const submit = () => {
-    setSubmitting(true);
-    // TODO: swap for api.createPost(FormData) once the backend is live
-    setTimeout(() => {
-      setSubmitting(false);
-      setDone(true);
-      setTimeout(() => {
-        setDone(false);
-        setMediaPicked(false);
-        setCaption('');
-        setTags([]);
-      }, 1800);
-    }, 1000);
+  const reset = () => {
+    setMedia([]);
+    setCaption('');
+    setTags([]);
+    setProgress(0);
   };
+
+  const submit = useCallback(() => {
+    setUploading(true);
+    setProgress(0);
+    const handle = uploadPost(media, { kind, caption, eventTags: tags }, setProgress);
+    uploadRef.current = handle;
+    handle.promise
+      .then(() => {
+        setUploading(false);
+        setDone(true);
+        setTimeout(() => {
+          setDone(false);
+          reset();
+        }, 1800);
+      })
+      .catch(() => {
+        // Cancelled or failed — keep the user's draft intact
+        setUploading(false);
+        setProgress(0);
+      });
+  }, [media, kind, caption, tags]);
+
+  const cancelUpload = () => uploadRef.current?.cancel();
+
+  const canPost = media.length > 0 && tags.length > 0 && !uploading;
+  const video = kind === 'reel' ? media[0] : undefined;
 
   return (
     <View className="flex-1" style={{ backgroundColor: COLORS.bg }}>
@@ -57,7 +170,7 @@ export const CreatePostScreen = () => {
             return (
               <Pressable
                 key={key}
-                onPress={() => setKind(key)}
+                onPress={() => switchKind(key)}
                 className="flex-1 flex-row items-center justify-center py-3 rounded-xl"
                 style={{ backgroundColor: active ? COLORS.primary : 'transparent' }}
               >
@@ -73,49 +186,133 @@ export const CreatePostScreen = () => {
           })}
         </Animated.View>
 
-        {/* Media picker */}
-        <Animated.View entering={FadeInDown.delay(80).duration(400)}>
-          <Pressable
-            onPress={() => setMediaPicked((v) => !v)}
-            className="mt-5 rounded-3xl items-center justify-center"
-            style={{
-              height: 200,
-              borderWidth: 2,
-              borderStyle: 'dashed',
-              borderColor: mediaPicked ? COLORS.primary : COLORS.border,
-              backgroundColor: mediaPicked ? 'rgba(124,58,237,0.12)' : COLORS.surface,
-            }}
-          >
-            {mediaPicked ? (
-              <Animated.View entering={ZoomIn.duration(300)} className="items-center">
+        {/* ---- Reel: video picker + inline preview ---- */}
+        {kind === 'reel' && (
+          <Animated.View entering={FadeInDown.delay(80).duration(400)}>
+            {video ? (
+              <View className="mt-5 rounded-3xl overflow-hidden" style={{ height: 300 }}>
+                <VideoPreview key={video.uri} uri={video.uri} />
                 <View
-                  className="w-14 h-14 rounded-full items-center justify-center"
-                  style={{ backgroundColor: COLORS.primary }}
+                  className="absolute bottom-3 left-3 flex-row items-center rounded-full px-3 py-1.5"
+                  style={{ backgroundColor: 'rgba(0,0,0,0.65)' }}
                 >
-                  <Ionicons name="checkmark" size={28} color="#fff" />
+                  <Ionicons name="videocam" size={13} color="#fff" />
+                  <Text className="text-white text-xs font-semibold ml-1.5">
+                    {formatDuration(video.durationMs) || 'Video'}
+                  </Text>
                 </View>
-                <Text className="text-white font-semibold mt-3">
-                  {kind === 'reel' ? 'Video selected' : '3 photos selected'}
-                </Text>
-                <Text className="text-slate-500 text-xs mt-1">Tap to change</Text>
-              </Animated.View>
+                <Pressable
+                  onPress={pickVideo}
+                  disabled={uploading}
+                  className="absolute top-3 right-3 flex-row items-center rounded-full px-3.5 py-2"
+                  style={{ backgroundColor: 'rgba(0,0,0,0.65)' }}
+                >
+                  <Ionicons name="swap-horizontal" size={14} color="#fff" />
+                  <Text className="text-white text-xs font-semibold ml-1.5">Change</Text>
+                </Pressable>
+              </View>
             ) : (
-              <View className="items-center">
-                <Ionicons
-                  name={kind === 'reel' ? 'videocam-outline' : 'images-outline'}
-                  size={40}
-                  color={COLORS.primaryLight}
-                />
+              <Pressable
+                onPress={pickVideo}
+                className="mt-5 rounded-3xl items-center justify-center"
+                style={{
+                  height: 200,
+                  borderWidth: 2,
+                  borderStyle: 'dashed',
+                  borderColor: COLORS.border,
+                  backgroundColor: COLORS.surface,
+                }}
+              >
+                <Ionicons name="videocam-outline" size={40} color={COLORS.primaryLight} />
                 <Text className="text-slate-300 font-semibold mt-3">
-                  {kind === 'reel' ? 'Pick a short video' : 'Pick up to 10 photos'}
+                  Pick a short video from your gallery
                 </Text>
-                <Text className="text-slate-500 text-xs mt-1">
-                  From your camera roll · demo picker
+                <Text className="text-slate-500 text-xs mt-1">Up to 60 seconds</Text>
+              </Pressable>
+            )}
+          </Animated.View>
+        )}
+
+        {/* ---- Carousel: multi-image picker + thumbnail strip ---- */}
+        {kind === 'carousel' && (
+          <Animated.View entering={FadeInDown.delay(80).duration(400)}>
+            {media.length === 0 ? (
+              <Pressable
+                onPress={pickImages}
+                className="mt-5 rounded-3xl items-center justify-center"
+                style={{
+                  height: 200,
+                  borderWidth: 2,
+                  borderStyle: 'dashed',
+                  borderColor: COLORS.border,
+                  backgroundColor: COLORS.surface,
+                }}
+              >
+                <Ionicons name="images-outline" size={40} color={COLORS.primaryLight} />
+                <Text className="text-slate-300 font-semibold mt-3">
+                  Pick photos from your gallery
+                </Text>
+                <Text className="text-slate-500 text-xs mt-1">Up to {MAX_CAROUSEL} photos</Text>
+              </Pressable>
+            ) : (
+              <View className="mt-5">
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  {media.map((m, i) => (
+                    <Animated.View key={m.uri} entering={ZoomIn.duration(250)} className="mr-2.5">
+                      <Image
+                        source={{ uri: m.uri }}
+                        style={{ width: 110, height: 150, borderRadius: 16 }}
+                      />
+                      <View
+                        className="absolute top-1.5 left-1.5 w-5 h-5 rounded-full items-center justify-center"
+                        style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
+                      >
+                        <Text className="text-white text-[10px] font-bold">{i + 1}</Text>
+                      </View>
+                      {!uploading && (
+                        <Pressable
+                          onPress={() => removeImage(m.uri)}
+                          hitSlop={8}
+                          className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full items-center justify-center"
+                          style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
+                        >
+                          <Ionicons name="close" size={14} color="#fff" />
+                        </Pressable>
+                      )}
+                    </Animated.View>
+                  ))}
+                  {media.length < MAX_CAROUSEL && !uploading && (
+                    <Pressable
+                      onPress={pickImages}
+                      className="items-center justify-center"
+                      style={{
+                        width: 110,
+                        height: 150,
+                        borderRadius: 16,
+                        borderWidth: 2,
+                        borderStyle: 'dashed',
+                        borderColor: COLORS.border,
+                        backgroundColor: COLORS.surface,
+                      }}
+                    >
+                      <Ionicons name="add" size={28} color={COLORS.primaryLight} />
+                      <Text className="text-slate-500 text-xs mt-1">Add more</Text>
+                    </Pressable>
+                  )}
+                </ScrollView>
+                <Text className="text-slate-500 text-xs mt-2">
+                  {media.length}/{MAX_CAROUSEL} photos · drag order coming soon
                 </Text>
               </View>
             )}
-          </Pressable>
-        </Animated.View>
+          </Animated.View>
+        )}
+
+        {pickError && (
+          <Animated.Text entering={FadeIn} className="text-red-400 text-sm mt-3">
+            {pickError}
+          </Animated.Text>
+        )}
 
         {/* Caption */}
         <Animated.View entering={FadeInDown.delay(160).duration(400)} className="mt-5">
@@ -123,6 +320,7 @@ export const CreatePostScreen = () => {
           <TextInput
             value={caption}
             onChangeText={setCaption}
+            editable={!uploading}
             placeholder="Say something about this moment…"
             placeholderTextColor="#64748B"
             multiline
@@ -140,7 +338,7 @@ export const CreatePostScreen = () => {
           />
         </Animated.View>
 
-        {/* Event tags — required, per the festival spec */}
+        {/* Event tags — required */}
         <Animated.View entering={FadeInDown.delay(240).duration(400)} className="mt-5">
           <Text className="text-slate-300 font-semibold text-sm">
             Tag the event <Text className="text-red-400">*</Text>
@@ -154,7 +352,7 @@ export const CreatePostScreen = () => {
               return (
                 <Pressable
                   key={event}
-                  onPress={() => toggleTag(event)}
+                  onPress={() => !uploading && toggleTag(event)}
                   className="mr-2 mb-2 px-3.5 py-2 rounded-full flex-row items-center"
                   style={{
                     backgroundColor: active ? 'rgba(124,58,237,0.25)' : COLORS.surface,
@@ -179,6 +377,7 @@ export const CreatePostScreen = () => {
           </View>
         </Animated.View>
 
+        {/* Submit / progress / success */}
         <View className="mt-6 mb-10">
           {done ? (
             <Animated.View
@@ -189,11 +388,31 @@ export const CreatePostScreen = () => {
               <Ionicons name="checkmark-circle" size={22} color="#34D399" />
               <Text className="text-emerald-300 font-bold ml-2">Posted to Pearl Diaries!</Text>
             </Animated.View>
+          ) : uploading ? (
+            <View>
+              <View
+                className="h-2.5 rounded-full overflow-hidden"
+                style={{ backgroundColor: COLORS.surfaceLight }}
+              >
+                <View
+                  className="h-full rounded-full"
+                  style={{ width: `${Math.round(progress * 100)}%`, backgroundColor: COLORS.primary }}
+                />
+              </View>
+              <View className="flex-row items-center justify-between mt-3">
+                <Text className="text-slate-400 text-sm">
+                  Uploading {kind === 'reel' ? 'video' : `${media.length} photos`}…{' '}
+                  {Math.round(progress * 100)}%
+                </Text>
+                <Pressable onPress={cancelUpload} hitSlop={8}>
+                  <Text className="text-red-400 font-semibold">Cancel</Text>
+                </Pressable>
+              </View>
+            </View>
           ) : (
             <GradientButton
               title={kind === 'reel' ? 'Post Reel' : 'Post Carousel'}
               onPress={submit}
-              loading={submitting}
               disabled={!canPost}
             />
           )}
