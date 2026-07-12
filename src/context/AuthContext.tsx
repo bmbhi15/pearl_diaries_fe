@@ -34,6 +34,9 @@ interface AuthContextValue {
   session: Session | null;
   completeProfile: (draft: ProfileDraft) => Promise<void>;
   signOut: () => Promise<void>;
+  /** Dev-only: skip Clerk entirely to test UI while OAuth is broken.
+   * NOTE: protected API calls will still 401 — there's no real JWT. */
+  devBypass: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -56,6 +59,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const [stage, setStage] = useState<AuthStage>('loading');
   const [profile, setProfile] = useState<User | undefined>(undefined);
+  const [bypassed, setBypassed] = useState(false);
 
   // Give the plain axios module a way to fetch a live Clerk session token
   // (getToken only exists via this hook, api.ts can't call it directly).
@@ -66,6 +70,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   // Once Clerk resolves, ask the backend whether this user has a profile.
   useEffect(() => {
+    if (bypassed) return;
     if (!authLoaded) {
       setStage('loading');
       return;
@@ -101,7 +106,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return () => {
       cancelled = true;
     };
-  }, [authLoaded, isSignedIn, userId]);
+  }, [authLoaded, isSignedIn, userId, bypassed]);
+
+  const devBypass = useCallback(() => {
+    console.log('[Auth] DEV BYPASS — no real Clerk session, protected API calls will 401');
+    setBypassed(true);
+    setStage('needsProfile');
+  }, []);
 
   const completeProfile = useCallback(async (draft: ProfileDraft) => {
     const { data } = await api.registerProfile({
@@ -121,17 +132,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setStage('signedOut');
   }, [clerkSignOut]);
 
-  const session: Session | null = userId
-    ? {
-        clerkUserId: userId,
-        email: user?.primaryEmailAddress?.emailAddress ?? undefined,
-        profile,
-      }
-    : null;
+  const session: Session | null = bypassed
+    ? { clerkUserId: 'dev-bypass', email: 'dev@pearldiaries.local', profile }
+    : userId
+      ? {
+          clerkUserId: userId,
+          email: user?.primaryEmailAddress?.emailAddress ?? undefined,
+          profile,
+        }
+      : null;
 
   const value = useMemo(
-    () => ({ stage, session, completeProfile, signOut }),
-    [stage, session, completeProfile, signOut]
+    () => ({ stage, session, completeProfile, signOut, devBypass }),
+    [stage, session, completeProfile, signOut, devBypass]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

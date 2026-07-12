@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSSO } from '@clerk/clerk-expo';
@@ -14,6 +14,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { PearlLogo } from '../../components/PearlLogo';
 import { GradientButton } from '../../components/GradientButton';
+import { useAuth } from '../../context/AuthContext';
 import { COLORS } from '../../constants/theme';
 
 /** A softly drifting gradient orb for the ambient background. */
@@ -64,6 +65,7 @@ const clerkErrorMessage = (err: unknown, fallback: string): string => {
 export const LoginScreen = () => {
   const insets = useSafeAreaInsets();
   const { startSSOFlow } = useSSO();
+  const { devBypass } = useAuth();
 
   const [googleLoading, setGoogleLoading] = useState(false);
   const [googleError, setGoogleError] = useState<string | null>(null);
@@ -139,6 +141,14 @@ export const LoginScreen = () => {
             <Animated.Text entering={FadeIn} className="text-red-400 mt-3 text-center text-sm">
               {googleError}
             </Animated.Text>
+          )}
+
+          {__DEV__ && (
+            <Pressable onPress={devBypass} className="mt-4 items-center" hitSlop={8}>
+              <Text className="text-slate-500 text-xs underline">
+                Skip sign-in (dev only — API calls will 401)
+              </Text>
+            </Pressable>
           )}
         </Animated.View>
 

@@ -1,6 +1,7 @@
 import './global.css';
-import React from 'react';
+import React, { useEffect } from 'react';
 import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
 import { ClerkProvider } from '@clerk/clerk-expo';
 import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -35,6 +36,13 @@ if (!publishableKey) {
 }
 
 export default function App() {
+  useEffect(() => {
+    const sub = Linking.addEventListener('url', (e) => {
+      console.log('[RAW REDIRECT URL]', JSON.stringify(e.url));
+    });
+    return () => sub.remove();
+  }, []);
+
   return (
     <ClerkProvider publishableKey={publishableKey} tokenCache={clerkTokenCache}>
       <SafeAreaProvider>
