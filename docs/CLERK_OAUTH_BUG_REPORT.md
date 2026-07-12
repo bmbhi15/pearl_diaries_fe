@@ -190,6 +190,17 @@ Every fix surfaced in the Clerk Dashboard UI has now been tried, each
 verified with a fresh retry and fresh log capture. The symptom has not
 changed once across any of these attempts.
 
+- ❌ `MainActivity` `android:launchMode="singleTask"` → `"singleTop"` —
+  hypothesis: with `singleTask`, an OAuth redirect arriving while the
+  Custom Tab is open gets delivered via `onNewIntent()` to the existing
+  activity instance, and something in that path (Expo's WebBrowser
+  module, or an OEM Android skin's task management — this device is in
+  the Oplus/ColorOS family) could plausibly drop the query string before
+  it's captured. Rebuilt with `singleTop`, reinstalled (fresh
+  `dumpsys package` timestamp confirmed), retried: identical failure —
+  same bare `pearldiaries://sso-callback`, same `type: 'success'`, same
+  no-session result. Ruled out.
+
 ## What's still unknown (needs Clerk-side investigation)
 
 Why Clerk's server-side redirect to a custom native URL scheme isn't
