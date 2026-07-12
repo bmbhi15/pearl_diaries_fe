@@ -74,11 +74,11 @@ export const ProfileScreen = () => {
         </Animated.View>
 
         {/* Excited-for events */}
-        {profile?.events && profile.events.length > 0 && (
+        {profile?.interestedEvents && profile.interestedEvents.length > 0 && (
           <Animated.View entering={FadeInDown.delay(120).duration(450)} className="mt-5">
             <Text className="text-slate-300 font-semibold mb-3">Excited for</Text>
             <View className="flex-row flex-wrap">
-              {profile.events.map((event, i) => (
+              {profile.interestedEvents.map((event, i) => (
                 <View
                   key={event}
                   className="flex-row items-center rounded-full px-3.5 py-2 mr-2 mb-2"

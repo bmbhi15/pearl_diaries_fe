@@ -6,11 +6,13 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth as useClerkAuth, useUser } from '@clerk/clerk-expo';
 import { api, setAuthTokenGetter } from '../utils/api';
+import type { User } from '../types/index';
 
-export interface UserProfile {
+/** Shape ProfileSetupScreen collects — translated to the backend's field
+ * names (events -> interestedEvents) inside completeProfile below. */
+export interface ProfileDraft {
   name: string;
   dateOfBirth: string;
   collegeName: string;
@@ -21,7 +23,8 @@ export interface UserProfile {
 interface Session {
   clerkUserId: string;
   email?: string;
-  profile?: UserProfile;
+  /** The real backend User record once profile setup is complete. */
+  profile?: User;
 }
 
 export type AuthStage = 'loading' | 'signedOut' | 'needsProfile' | 'signedIn';
@@ -29,22 +32,17 @@ export type AuthStage = 'loading' | 'signedOut' | 'needsProfile' | 'signedIn';
 interface AuthContextValue {
   stage: AuthStage;
   session: Session | null;
-  completeProfile: (profile: UserProfile) => Promise<void>;
+  completeProfile: (draft: ProfileDraft) => Promise<void>;
   signOut: () => Promise<void>;
 }
-
-const profileKey = (clerkUserId: string) => `pearl.profile.${clerkUserId}`;
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 /**
  * Bridges Clerk's session state into the app's four-stage flow. Clerk owns
  * "is this a valid, signed-in user" — this provider owns the app-specific
- * question of "has that user finished onboarding".
- *
- * Profile storage is a local cache keyed by Clerk user id until the real
- * backend exists (docs/BACKEND_API.md #1 registerProfile / #2 fetch own
- * profile) — swap the AsyncStorage calls below for `api.*` then.
+ * question of "has that user finished onboarding", answered by calling the
+ * real backend (GET /users/me: 404 = needs onboarding, 200 = signed in).
  */
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const {
@@ -57,7 +55,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const { user } = useUser();
 
   const [stage, setStage] = useState<AuthStage>('loading');
-  const [profile, setProfile] = useState<UserProfile | undefined>(undefined);
+  const [profile, setProfile] = useState<User | undefined>(undefined);
 
   // Give the plain axios module a way to fetch a live Clerk session token
   // (getToken only exists via this hook, api.ts can't call it directly).
@@ -66,7 +64,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return () => setAuthTokenGetter(null);
   }, [isSignedIn, getToken]);
 
-  // Once Clerk resolves, figure out which stage we're in.
+  // Once Clerk resolves, ask the backend whether this user has a profile.
   useEffect(() => {
     if (!authLoaded) {
       setStage('loading');
@@ -77,36 +75,51 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setStage('signedOut');
       return;
     }
+    let cancelled = false;
     (async () => {
-      // TODO(backend): replace with api.getOwnProfile() once #2 exists.
-      const raw = await AsyncStorage.getItem(profileKey(userId));
-      if (raw) {
-        setProfile(JSON.parse(raw));
+      try {
+        const { data } = await api.getMyProfile();
+        if (cancelled) return;
+        setProfile(data);
         setStage('signedIn');
-      } else {
-        setStage('needsProfile');
+      } catch (err: any) {
+        if (cancelled) return;
+        if (err?.response?.status === 404) {
+          setProfile(undefined);
+          setStage('needsProfile');
+        } else {
+          // Network hiccup / transient 5xx: fall back to the onboarding
+          // form rather than getting stuck. Registration is idempotent
+          // server-side, so resubmitting is harmless if a profile already
+          // exists.
+          console.log('[Auth] getMyProfile failed, routing to onboarding:', err);
+          setProfile(undefined);
+          setStage('needsProfile');
+        }
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [authLoaded, isSignedIn, userId]);
 
-  const completeProfile = useCallback(
-    async (next: UserProfile) => {
-      if (!userId) return;
-      await AsyncStorage.setItem(profileKey(userId), JSON.stringify(next));
-      setProfile(next);
-      setStage('signedIn');
-      // Fire-and-forget: register with the backend when #1 exists.
-      api.registerProfile(next).catch(() => {});
-    },
-    [userId]
-  );
+  const completeProfile = useCallback(async (draft: ProfileDraft) => {
+    const { data } = await api.registerProfile({
+      name: draft.name,
+      dateOfBirth: draft.dateOfBirth,
+      collegeName: draft.collegeName,
+      gender: draft.gender,
+      interestedEvents: draft.events,
+    });
+    setProfile(data);
+    setStage('signedIn');
+  }, []);
 
   const signOut = useCallback(async () => {
-    if (userId) await AsyncStorage.removeItem(profileKey(userId));
     setProfile(undefined);
     await clerkSignOut();
     setStage('signedOut');
-  }, [userId, clerkSignOut]);
+  }, [clerkSignOut]);
 
   const session: Session | null = userId
     ? {

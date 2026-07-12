@@ -75,12 +75,28 @@ export const LoginScreen = () => {
       // No explicit redirectUrl: let Clerk derive it from app.json's
       // "scheme" (its own default is `<scheme>://sso-callback`), so the
       // URL this promise waits for always matches what Clerk itself opens.
-      const { createdSessionId, setActive } = await startSSOFlow({ strategy: 'oauth_google' });
+      const { createdSessionId, setActive, authSessionResult } = await startSSOFlow({
+        strategy: 'oauth_google',
+      });
+
       if (createdSessionId && setActive) {
         await setActive({ session: createdSessionId });
+        return;
       }
-      // else: user closed the browser before completing — not an error.
+
+      // No session and no exception thrown — this used to fail silently,
+      // which is indistinguishable from "stuck" in the UI. Log what Clerk's
+      // WebBrowser session actually reported (visible in the Metro/dev-client
+      // terminal) and only skip the error if the user genuinely dismissed it.
+      console.log('[Google SSO] no session created — authSessionResult:', authSessionResult);
+      const resultType = authSessionResult?.type;
+      if (resultType !== 'cancel' && resultType !== 'dismiss') {
+        setGoogleError(
+          `Sign-in didn't complete (${resultType ?? 'unknown'}). Check the Metro logs for details.`
+        );
+      }
     } catch (err) {
+      console.log('[Google SSO] threw:', err);
       setGoogleError(clerkErrorMessage(err, 'Google sign-in failed. Please try again.'));
     } finally {
       setGoogleLoading(false);

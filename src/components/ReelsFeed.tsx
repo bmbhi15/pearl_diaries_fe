@@ -21,6 +21,8 @@ interface ReelsFeedProps {
   onPostLike?: (postId: string) => void;
   onPostUnlike?: (postId: string) => void;
   onComment?: (postId: string) => void;
+  /** Called with elapsed watch time (ms) when a reel scrolls out of view. */
+  onView?: (postId: string, watchMs: number) => void;
 }
 
 const formatCount = (n: number) =>
@@ -129,7 +131,7 @@ const ReelItem = ({ post, height, isVisible, onLike, onComment }: ReelItemProps)
             style={{ width: 42, height: 42, borderRadius: 21, padding: 2 }}
           >
             <Image
-              source={{ uri: post.user?.avatar }}
+              source={{ uri: post.user?.avatar ?? undefined }}
               style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: COLORS.surface }}
             />
           </LinearGradient>
@@ -181,14 +183,28 @@ export const ReelsFeed = ({
   onPostLike,
   onPostUnlike,
   onComment,
+  onView,
 }: ReelsFeedProps) => {
   const [visibleIndex, setVisibleIndex] = useState(0);
   const [containerHeight, setContainerHeight] = useState(0);
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
+  const watchStartRef = useRef<{ postId: string; startedAt: number } | null>(null);
 
   const onViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: ViewToken[] }) => {
       const first = viewableItems[0];
+      const nextPost = first?.item as Post | undefined;
+
+      // Reel just scrolled out of view — report how long it was watched.
+      if (watchStartRef.current && watchStartRef.current.postId !== nextPost?.id) {
+        const watchMs = Date.now() - watchStartRef.current.startedAt;
+        onView?.(watchStartRef.current.postId, watchMs);
+        watchStartRef.current = null;
+      }
+      if (nextPost && watchStartRef.current?.postId !== nextPost.id) {
+        watchStartRef.current = { postId: nextPost.id, startedAt: Date.now() };
+      }
+
       if (first?.index != null) setVisibleIndex(first.index);
     }
   ).current;

@@ -1,108 +1,138 @@
-import React, { useState, useCallback } from 'react';
-import { View, Text } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { View, Text, ActivityIndicator, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { ReelsFeed } from '../components/ReelsFeed';
 import { PearlLogo } from '../components/PearlLogo';
 import { Post } from '../types/index';
-
-const now = new Date().toISOString();
-
-const mockUser = (id: string, name: string, college: string, img: number) => ({
-  id,
-  name,
-  email: `${id}@example.com`,
-  avatar: `https://i.pravatar.cc/150?img=${img}`,
-  collegeName: college,
-  createdAt: now,
-});
-
-const MOCK_REELS: Post[] = [
-  {
-    id: 'r1',
-    userId: 'u1',
-    user: mockUser('u1', 'Ananya Sharma', 'BITS Hyderabad', 47),
-    type: 'video',
-    content: {
-      uri: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-      thumbnail: 'https://picsum.photos/seed/pearl1/540/960',
-      duration: 15,
-    },
-    caption: 'The crowd went WILD at Pro Show tonight 🔥✨ #Pearl2026',
-    eventTags: ['Pro Show Night'],
-    likes: 2450,
-    comments: 128,
-    shares: 86,
-    isLiked: false,
-    createdAt: now,
-    updatedAt: now,
-  },
-  {
-    id: 'r2',
-    userId: 'u2',
-    user: mockUser('u2', 'Rohan Verma', 'IIT Hyderabad', 12),
-    type: 'video',
-    content: {
-      uri: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
-      thumbnail: 'https://picsum.photos/seed/pearl2/540/960',
-      duration: 20,
-    },
-    caption: 'Street battle finals — that last move though 💀',
-    eventTags: ['Street Dance Battle'],
-    likes: 5120,
-    comments: 284,
-    shares: 152,
-    isLiked: false,
-    createdAt: now,
-    updatedAt: now,
-  },
-  {
-    id: 'r3',
-    userId: 'u3',
-    user: mockUser('u3', 'Priya Nair', 'BITS Hyderabad', 32),
-    type: 'video',
-    content: {
-      uri: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
-      thumbnail: 'https://picsum.photos/seed/pearl3/540/960',
-      duration: 25,
-    },
-    caption: 'Battle of Bands sound check — tonight is going to be legendary 🎸',
-    eventTags: ['Battle of Bands', 'EDM Night'],
-    likes: 7890,
-    comments: 445,
-    shares: 320,
-    isLiked: true,
-    createdAt: now,
-    updatedAt: now,
-  },
-];
+import { api } from '../utils/api';
+import { COLORS } from '../constants/theme';
 
 export const ReelsScreen = () => {
   const insets = useSafeAreaInsets();
-  const [posts, setPosts] = useState<Post[]>(MOCK_REELS);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const cursorRef = useRef<string | null>(null);
+  const hasMoreRef = useRef(true);
 
-  const handleLike = useCallback((postId: string) => {
+  const loadFirstPage = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { data } = await api.getReels();
+      setPosts(data.items);
+      cursorRef.current = data.nextCursor;
+      hasMoreRef.current = data.nextCursor !== null;
+    } catch (err) {
+      console.log('[Reels] getReels failed:', err);
+      setError('Couldn’t load reels. Pull to try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadFirstPage();
+  }, [loadFirstPage]);
+
+  const handleLoadMore = useCallback(async () => {
+    if (loadingMore || !hasMoreRef.current) return;
+    setLoadingMore(true);
+    try {
+      const { data } = await api.getReels(20, cursorRef.current ?? undefined);
+      setPosts((prev) => [...prev, ...data.items]);
+      cursorRef.current = data.nextCursor;
+      hasMoreRef.current = data.nextCursor !== null;
+    } catch (err) {
+      console.log('[Reels] loadMore failed:', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore]);
+
+  const handleLike = useCallback(async (postId: string) => {
     setPosts((prev) =>
       prev.map((p) => (p.id === postId ? { ...p, likes: p.likes + 1, isLiked: true } : p))
     );
+    try {
+      const { data } = await api.likePost(postId);
+      setPosts((prev) =>
+        prev.map((p) => (p.id === postId ? { ...p, likes: data.likes, isLiked: data.isLiked } : p))
+      );
+    } catch (err) {
+      console.log('[Reels] like failed:', err);
+      setPosts((prev) =>
+        prev.map((p) => (p.id === postId ? { ...p, likes: Math.max(0, p.likes - 1), isLiked: false } : p))
+      );
+    }
   }, []);
 
-  const handleUnlike = useCallback((postId: string) => {
+  const handleUnlike = useCallback(async (postId: string) => {
     setPosts((prev) =>
-      prev.map((p) =>
-        p.id === postId ? { ...p, likes: Math.max(0, p.likes - 1), isLiked: false } : p
-      )
+      prev.map((p) => (p.id === postId ? { ...p, likes: Math.max(0, p.likes - 1), isLiked: false } : p))
     );
+    try {
+      const { data } = await api.unlikePost(postId);
+      setPosts((prev) =>
+        prev.map((p) => (p.id === postId ? { ...p, likes: data.likes, isLiked: data.isLiked } : p))
+      );
+    } catch (err) {
+      console.log('[Reels] unlike failed:', err);
+      setPosts((prev) =>
+        prev.map((p) => (p.id === postId ? { ...p, likes: p.likes + 1, isLiked: true } : p))
+      );
+    }
   }, []);
+
+  const handleView = useCallback((postId: string, watchMs: number) => {
+    api.recordView(postId, watchMs).catch(() => {});
+  }, []);
+
+  if (loading) {
+    return (
+      <View className="flex-1 items-center justify-center bg-black">
+        <ActivityIndicator size="large" color={COLORS.primary} />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View className="flex-1 items-center justify-center bg-black px-8">
+        <Text className="text-slate-400 text-center mb-4">{error}</Text>
+        <Pressable
+          onPress={loadFirstPage}
+          className="px-5 py-3 rounded-full"
+          style={{ backgroundColor: COLORS.primary }}
+        >
+          <Text className="text-white font-semibold">Retry</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (posts.length === 0) {
+    return (
+      <View className="flex-1 items-center justify-center bg-black px-8">
+        <Text className="text-slate-400 text-center">
+          No reels yet — be the first to post one from the Create tab.
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View className="flex-1 bg-black">
       <ReelsFeed
         posts={posts}
+        onLoadMore={handleLoadMore}
         onPostLike={handleLike}
         onPostUnlike={handleUnlike}
         onComment={() => {}}
+        onView={handleView}
       />
 
       {/* Floating brand header over the feed */}

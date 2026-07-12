@@ -58,6 +58,12 @@ const formatDob = (raw: string) => {
   return `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4)}`;
 };
 
+/** DD/MM/YYYY (the form's editable format) -> YYYY-MM-DD (the API's). */
+const toIsoDate = (ddmmyyyy: string) => {
+  const [d, m, y] = ddmmyyyy.split('/');
+  return `${y}-${m}-${d}`;
+};
+
 const Field = ({
   label,
   icon,
@@ -97,6 +103,7 @@ export const ProfileSetupScreen = () => {
   const [details, setDetails] = useState<DetailsForm | null>(null);
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const {
     control,
@@ -125,7 +132,20 @@ export const ProfileSetupScreen = () => {
   const onFinish = async () => {
     if (!details) return;
     setSubmitting(true);
-    await completeProfile({ ...details, events: selectedEvents });
+    setSubmitError(null);
+    try {
+      await completeProfile({
+        ...details,
+        dateOfBirth: toIsoDate(details.dateOfBirth),
+        events: selectedEvents,
+      });
+    } catch (err: any) {
+      console.log('[ProfileSetup] registerProfile failed:', err);
+      setSubmitError(
+        err?.response?.data?.message ?? 'Couldn’t save your profile. Please try again.'
+      );
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -313,6 +333,9 @@ export const ProfileSetupScreen = () => {
             </ScrollView>
 
             <View className="pb-8 pt-2">
+              {submitError && (
+                <Text className="text-red-400 text-sm text-center mb-3">{submitError}</Text>
+              )}
               <GradientButton
                 title={
                   selectedEvents.length === 0

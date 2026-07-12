@@ -1,59 +1,64 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, Pressable, ScrollView } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { View, Text, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { PostsGrid } from '../components/PostsGrid';
 import { ScreenHeader } from '../components/ScreenHeader';
-import { Post } from '../types/index';
-import { COLORS, PEARL_EVENTS } from '../constants/theme';
-
-const now = new Date().toISOString();
-
-const mockUser = (id: string, name: string, img: number) => ({
-  id,
-  name,
-  email: `${id}@example.com`,
-  avatar: `https://i.pravatar.cc/150?img=${img}`,
-  createdAt: now,
-});
-
-const MOCK_POSTS: Post[] = [
-  'Pro Show Night',
-  'Battle of Bands',
-  'Street Dance Battle',
-  'Mr & Ms Pearl',
-  'EDM Night',
-  'Comedy Night',
-  'Open Mic',
-  'Art Exhibition',
-].map((event, i) => ({
-  id: `p${i + 1}`,
-  userId: `u${(i % 4) + 1}`,
-  user: mockUser(
-    `u${(i % 4) + 1}`,
-    ['Ananya Sharma', 'Rohan Verma', 'Priya Nair', 'Arjun Rao'][i % 4],
-    [47, 12, 32, 60][i % 4]
-  ),
-  type: i % 3 === 0 ? 'video' : 'carousel',
-  content: {
-    uri: `https://picsum.photos/seed/pearlpost${i}/540/760`,
-    thumbnail: `https://picsum.photos/seed/pearlpost${i}/540/760`,
-  },
-  caption: `Moments from ${event} ✨`,
-  eventTags: [event],
-  likes: 240 + i * 137,
-  comments: 12 + i * 9,
-  shares: 5 + i * 4,
-  isLiked: false,
-  createdAt: now,
-  updatedAt: now,
-}));
+import { Post, Event } from '../types/index';
+import { api } from '../utils/api';
+import { COLORS } from '../constants/theme';
 
 export const PostsScreen = () => {
   const [filter, setFilter] = useState<string | null>(null);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const cursorRef = useRef<string | null>(null);
+  const hasMoreRef = useRef(true);
 
-  const filtered = useMemo(
-    () => (filter ? MOCK_POSTS.filter((p) => p.eventTags.includes(filter)) : MOCK_POSTS),
-    [filter]
-  );
+  // Public endpoint — events for the filter chips, independent of auth state.
+  useEffect(() => {
+    api
+      .getEvents()
+      .then(({ data }) => setEvents(data))
+      .catch((err) => console.log('[Explore] getEvents failed:', err));
+  }, []);
+
+  const loadFirstPage = useCallback(async (eventTag: string | null) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { data } = await api.getExplore(20, undefined, eventTag ?? undefined);
+      setPosts(data.items);
+      cursorRef.current = data.nextCursor;
+      hasMoreRef.current = data.nextCursor !== null;
+    } catch (err) {
+      console.log('[Explore] getExplore failed:', err);
+      setError('Couldn’t load posts. Pull to try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Re-fetch from the server whenever the event filter changes.
+  useEffect(() => {
+    loadFirstPage(filter);
+  }, [filter, loadFirstPage]);
+
+  const handleLoadMore = useCallback(async () => {
+    if (loadingMore || !hasMoreRef.current) return;
+    setLoadingMore(true);
+    try {
+      const { data } = await api.getExplore(20, cursorRef.current ?? undefined, filter ?? undefined);
+      setPosts((prev) => [...prev, ...data.items]);
+      cursorRef.current = data.nextCursor;
+      hasMoreRef.current = data.nextCursor !== null;
+    } catch (err) {
+      console.log('[Explore] loadMore failed:', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, filter]);
 
   const filterChips = (
     <ScrollView
@@ -61,12 +66,12 @@ export const PostsScreen = () => {
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={{ paddingHorizontal: 10, paddingBottom: 12 }}
     >
-      {[null, ...PEARL_EVENTS].map((event) => {
-        const active = filter === event;
+      {[null, ...events.map((e) => e.name)].map((eventName) => {
+        const active = filter === eventName;
         return (
           <Pressable
-            key={event ?? 'all'}
-            onPress={() => setFilter(event)}
+            key={eventName ?? 'all'}
+            onPress={() => setFilter(eventName)}
             className="px-4 py-2 rounded-full mr-2"
             style={{
               backgroundColor: active ? COLORS.primary : COLORS.surface,
@@ -75,7 +80,7 @@ export const PostsScreen = () => {
             }}
           >
             <Text className={active ? 'text-white font-semibold' : 'text-slate-400'}>
-              {event ?? 'All'}
+              {eventName ?? 'All'}
             </Text>
           </Pressable>
         );
@@ -86,7 +91,25 @@ export const PostsScreen = () => {
   return (
     <View className="flex-1" style={{ backgroundColor: COLORS.bg }}>
       <ScreenHeader title="Explore" subtitle="Photo drops from around the fest" />
-      <PostsGrid posts={filtered} header={filterChips} />
+
+      {loading ? (
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator size="large" color={COLORS.primary} />
+        </View>
+      ) : error ? (
+        <View className="flex-1 items-center justify-center px-8">
+          <Text className="text-slate-400 text-center mb-4">{error}</Text>
+          <Pressable
+            onPress={() => loadFirstPage(filter)}
+            className="px-5 py-3 rounded-full"
+            style={{ backgroundColor: COLORS.primary }}
+          >
+            <Text className="text-white font-semibold">Retry</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <PostsGrid posts={posts} header={filterChips} onLoadMore={handleLoadMore} />
+      )}
     </View>
   );
 };
