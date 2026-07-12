@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import { makeRedirectUri } from 'expo-auth-session';
+import { useOAuth, useSignIn, useSignUp } from '@clerk/clerk-expo';
 import Animated, {
   FadeInDown,
   FadeIn,
@@ -13,8 +15,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { PearlLogo } from '../../components/PearlLogo';
 import { GradientButton } from '../../components/GradientButton';
-import { OtpSheet } from '../../components/OtpSheet';
-import { useAuth } from '../../context/AuthContext';
+import { OtpSheet, OtpSubmitResult } from '../../components/OtpSheet';
 import { COLORS } from '../../constants/theme';
 
 /** A softly drifting gradient orb for the ambient background. */
@@ -56,29 +57,126 @@ const Orb = ({
   );
 };
 
+const redirectUrl = makeRedirectUri({ scheme: 'pearldiaries', path: 'oauth-callback' });
+
+const clerkErrorMessage = (err: unknown, fallback: string): string => {
+  const first = (err as { errors?: Array<{ message?: string; longMessage?: string }> })
+    ?.errors?.[0];
+  return first?.longMessage ?? first?.message ?? fallback;
+};
+
 export const LoginScreen = () => {
   const insets = useSafeAreaInsets();
-  const { signInWithGoogle, signInWithPhone } = useAuth();
+  const { startOAuthFlow } = useOAuth({ strategy: 'oauth_google' });
+  const { signIn, isLoaded: signInLoaded, setActive: setActiveSignIn } = useSignIn();
+  const { signUp, isLoaded: signUpLoaded, setActive: setActiveSignUp } = useSignUp();
+
   const [phone, setPhone] = useState('');
   const [otpVisible, setOtpVisible] = useState(false);
+  const [otpMode, setOtpMode] = useState<'signIn' | 'signUp' | null>(null);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [phoneSubmitting, setPhoneSubmitting] = useState(false);
   const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [googleError, setGoogleError] = useState<string | null>(null);
 
   const handleGoogle = async () => {
+    setGoogleError(null);
     setGoogleLoading(true);
-    // Small delay to feel like a real OAuth roundtrip in the demo build
-    setTimeout(() => signInWithGoogle(), 600);
+    try {
+      const { createdSessionId, setActive } = await startOAuthFlow({ redirectUrl });
+      if (createdSessionId && setActive) {
+        await setActive({ session: createdSessionId });
+      }
+      // else: user closed the browser before completing — not an error.
+    } catch (err) {
+      setGoogleError(clerkErrorMessage(err, 'Google sign-in failed. Please try again.'));
+    } finally {
+      setGoogleLoading(false);
+    }
   };
 
-  const handlePhoneContinue = () => {
+  const handlePhoneContinue = async () => {
     const digits = phone.replace(/\D/g, '');
     if (digits.length !== 10) {
       setPhoneError('Enter a valid 10-digit mobile number');
       return;
     }
+    if (!signInLoaded || !signUpLoaded || !signIn || !signUp) return;
+
+    const fullPhone = `+91${digits}`;
     setPhoneError(null);
-    setOtpVisible(true);
+    setPhoneSubmitting(true);
+    try {
+      // Try existing-account sign-in first.
+      const attempt = await signIn.create({ identifier: fullPhone });
+      const factor = attempt.supportedFirstFactors?.find(
+        (f): f is typeof f & { phoneNumberId: string } =>
+          f.strategy === 'phone_code' && 'phoneNumberId' in f
+      );
+      if (!factor) throw new Error('no-phone-factor');
+      await signIn.prepareFirstFactor({ strategy: 'phone_code', phoneNumberId: factor.phoneNumberId });
+      setOtpMode('signIn');
+      setOtpVisible(true);
+    } catch (err) {
+      const code = (err as { errors?: Array<{ code?: string }> })?.errors?.[0]?.code;
+      if (code === 'form_identifier_not_found') {
+        // No account with this number yet — create one.
+        try {
+          await signUp.create({ phoneNumber: fullPhone });
+          await signUp.preparePhoneNumberVerification();
+          setOtpMode('signUp');
+          setOtpVisible(true);
+        } catch (signUpErr) {
+          setPhoneError(clerkErrorMessage(signUpErr, 'Could not send a code. Please try again.'));
+        }
+      } else {
+        setPhoneError(clerkErrorMessage(err, 'Could not send a code. Please try again.'));
+      }
+    } finally {
+      setPhoneSubmitting(false);
+    }
   };
+
+  const handleOtpSubmit = useCallback(
+    async (code: string): Promise<OtpSubmitResult> => {
+      try {
+        if (otpMode === 'signIn' && signIn) {
+          const result = await signIn.attemptFirstFactor({ strategy: 'phone_code', code });
+          if (result.status === 'complete' && result.createdSessionId) {
+            await setActiveSignIn({ session: result.createdSessionId });
+            return { success: true };
+          }
+        } else if (otpMode === 'signUp' && signUp) {
+          const result = await signUp.attemptPhoneNumberVerification({ code });
+          if (result.status === 'complete' && result.createdSessionId) {
+            await setActiveSignUp({ session: result.createdSessionId });
+            return { success: true };
+          }
+        }
+        return { success: false, message: 'That code didn’t match. Please try again.' };
+      } catch (err) {
+        return {
+          success: false,
+          message: clerkErrorMessage(err, 'That code didn’t match. Please try again.'),
+        };
+      }
+    },
+    [otpMode, signIn, signUp, setActiveSignIn, setActiveSignUp]
+  );
+
+  const handleOtpResend = useCallback(async () => {
+    if (otpMode === 'signIn' && signIn) {
+      const factor = signIn.supportedFirstFactors?.find(
+        (f): f is typeof f & { phoneNumberId: string } =>
+          f.strategy === 'phone_code' && 'phoneNumberId' in f
+      );
+      if (factor) {
+        await signIn.prepareFirstFactor({ strategy: 'phone_code', phoneNumberId: factor.phoneNumberId });
+      }
+    } else if (otpMode === 'signUp' && signUp) {
+      await signUp.preparePhoneNumberVerification();
+    }
+  }, [otpMode, signIn, signUp]);
 
   return (
     <View className="flex-1" style={{ backgroundColor: COLORS.bg }}>
@@ -117,6 +215,11 @@ export const LoginScreen = () => {
               loading={googleLoading}
               variant="outline"
             />
+            {googleError && (
+              <Animated.Text entering={FadeIn} className="text-red-400 mt-2 ml-1 text-sm">
+                {googleError}
+              </Animated.Text>
+            )}
 
             <View className="flex-row items-center my-6">
               <View className="flex-1 h-px" style={{ backgroundColor: COLORS.border }} />
@@ -160,6 +263,7 @@ export const LoginScreen = () => {
                 title="Get OTP"
                 icon="call-outline"
                 onPress={handlePhoneContinue}
+                loading={phoneSubmitting}
                 disabled={phone.length !== 10}
               />
             </View>
@@ -178,10 +282,9 @@ export const LoginScreen = () => {
         visible={otpVisible}
         phone={`+91 ${phone}`}
         onClose={() => setOtpVisible(false)}
-        onVerified={() => {
-          setOtpVisible(false);
-          signInWithPhone(`+91${phone}`);
-        }}
+        onVerified={() => setOtpVisible(false)}
+        onSubmitCode={handleOtpSubmit}
+        onResend={handleOtpResend}
       />
     </View>
   );

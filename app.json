@@ -3,9 +3,14 @@
     "name": "Pearl Diaries",
     "slug": "pearl-diaries",
     "version": "1.0.0",
+    "scheme": "pearldiaries",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "platforms": ["ios", "android", "web"],
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
     "ios": {
       "supportsTabletMode": false,
       "bundleIdentifier": "com.pearldiaries.app"
@@ -26,7 +31,9 @@
         {
           "photosPermission": "Pearl Diaries needs access to your photos and videos so you can share festival moments."
         }
-      ]
+      ],
+      "expo-secure-store",
+      "expo-web-browser"
     ]
   }
 }

@@ -7,6 +7,7 @@ import React, {
   useState,
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAuth as useClerkAuth, useUser } from '@clerk/clerk-expo';
 import { api } from '../utils/api';
 
 export interface UserProfile {
@@ -18,9 +19,9 @@ export interface UserProfile {
 }
 
 interface Session {
-  method: 'google' | 'phone';
-  phone?: string;
+  clerkUserId: string;
   email?: string;
+  phone?: string;
   profile?: UserProfile;
 }
 
@@ -29,86 +30,84 @@ export type AuthStage = 'loading' | 'signedOut' | 'needsProfile' | 'signedIn';
 interface AuthContextValue {
   stage: AuthStage;
   session: Session | null;
-  signInWithGoogle: () => Promise<void>;
-  signInWithPhone: (phone: string) => Promise<void>;
   completeProfile: (profile: UserProfile) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
-const STORAGE_KEY = 'pearl.session';
+const profileKey = (clerkUserId: string) => `pearl.profile.${clerkUserId}`;
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+/**
+ * Bridges Clerk's session state into the app's four-stage flow. Clerk owns
+ * "is this a valid, signed-in user" — this provider owns the app-specific
+ * question of "has that user finished onboarding".
+ *
+ * Profile storage is a local cache keyed by Clerk user id until the real
+ * backend exists (docs/BACKEND_API.md #1 registerProfile / #2 fetch own
+ * profile) — swap the AsyncStorage calls below for `api.*` then.
+ */
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [stage, setStage] = useState<AuthStage>('loading');
-  const [session, setSession] = useState<Session | null>(null);
+  const { isLoaded: authLoaded, isSignedIn, userId, signOut: clerkSignOut } = useClerkAuth();
+  const { user } = useUser();
 
-  // Restore persisted session on launch
+  const [stage, setStage] = useState<AuthStage>('loading');
+  const [profile, setProfile] = useState<UserProfile | undefined>(undefined);
+
+  // Once Clerk resolves, figure out which stage we're in.
   useEffect(() => {
+    if (!authLoaded) {
+      setStage('loading');
+      return;
+    }
+    if (!isSignedIn || !userId) {
+      setProfile(undefined);
+      setStage('signedOut');
+      return;
+    }
     (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const saved: Session = JSON.parse(raw);
-          setSession(saved);
-          setStage(saved.profile ? 'signedIn' : 'needsProfile');
-        } else {
-          setStage('signedOut');
-        }
-      } catch {
-        setStage('signedOut');
+      // TODO(backend): replace with api.getOwnProfile() once #2 exists.
+      const raw = await AsyncStorage.getItem(profileKey(userId));
+      if (raw) {
+        setProfile(JSON.parse(raw));
+        setStage('signedIn');
+      } else {
+        setStage('needsProfile');
       }
     })();
-  }, []);
-
-  const persist = useCallback(async (next: Session | null) => {
-    if (next) {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    } else {
-      await AsyncStorage.removeItem(STORAGE_KEY);
-    }
-  }, []);
-
-  const signInWithGoogle = useCallback(async () => {
-    // TODO: swap for Clerk Google OAuth once keys are configured
-    const next: Session = { method: 'google', email: 'student@hyderabad.bits-pilani.ac.in' };
-    setSession(next);
-    setStage('needsProfile');
-    await persist(next);
-  }, [persist]);
-
-  const signInWithPhone = useCallback(
-    async (phone: string) => {
-      // Called after OTP verification succeeds
-      const next: Session = { method: 'phone', phone };
-      setSession(next);
-      setStage('needsProfile');
-      await persist(next);
-    },
-    [persist]
-  );
+  }, [authLoaded, isSignedIn, userId]);
 
   const completeProfile = useCallback(
-    async (profile: UserProfile) => {
-      const next: Session = { ...(session ?? { method: 'phone' }), profile };
-      setSession(next);
+    async (next: UserProfile) => {
+      if (!userId) return;
+      await AsyncStorage.setItem(profileKey(userId), JSON.stringify(next));
+      setProfile(next);
       setStage('signedIn');
-      await persist(next);
-      // Fire-and-forget: register profile with the backend when available
-      api.registerProfile(profile).catch(() => {});
+      // Fire-and-forget: register with the backend when #1 exists.
+      api.registerProfile(next).catch(() => {});
     },
-    [persist, session]
+    [userId]
   );
 
   const signOut = useCallback(async () => {
-    setSession(null);
+    if (userId) await AsyncStorage.removeItem(profileKey(userId));
+    setProfile(undefined);
+    await clerkSignOut();
     setStage('signedOut');
-    await persist(null);
-  }, [persist]);
+  }, [userId, clerkSignOut]);
+
+  const session: Session | null = userId
+    ? {
+        clerkUserId: userId,
+        email: user?.primaryEmailAddress?.emailAddress ?? undefined,
+        phone: user?.primaryPhoneNumber?.phoneNumber ?? undefined,
+        profile,
+      }
+    : null;
 
   const value = useMemo(
-    () => ({ stage, session, signInWithGoogle, signInWithPhone, completeProfile, signOut }),
-    [stage, session, signInWithGoogle, signInWithPhone, completeProfile, signOut]
+    () => ({ stage, session, completeProfile, signOut }),
+    [stage, session, completeProfile, signOut]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

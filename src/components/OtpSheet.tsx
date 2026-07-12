@@ -22,29 +22,42 @@ import Animated, {
 import { COLORS } from '../constants/theme';
 
 const OTP_LENGTH = 6;
-/** Demo verification code until the Clerk phone-OTP backend is wired up. */
-const MOCK_VALID_OTP = '123456';
 const RESEND_SECONDS = 30;
+
+export type OtpSubmitResult = { success: true } | { success: false; message: string };
 
 interface OtpSheetProps {
   visible: boolean;
   phone: string;
   onClose: () => void;
   onVerified: () => void;
+  /** Calls the real Clerk verification for the current sign-in/sign-up attempt. */
+  onSubmitCode: (code: string) => Promise<OtpSubmitResult>;
+  /** Re-triggers Clerk's prepare step to send a fresh code. */
+  onResend: () => Promise<void>;
 }
 
 /**
  * Bottom-overlay OTP entry sheet.
  * Handles the full interaction matrix: wrong-code error (shake + clear),
  * resend cooldown, hardware back / backdrop / close-button dismissal with a
- * discard-confirmation when digits have already been typed.
+ * discard-confirmation when digits have already been typed. Verification
+ * itself is delegated to the caller (real Clerk phone_code attempt).
  */
-export const OtpSheet = ({ visible, phone, onClose, onVerified }: OtpSheetProps) => {
+export const OtpSheet = ({
+  visible,
+  phone,
+  onClose,
+  onVerified,
+  onSubmitCode,
+  onResend,
+}: OtpSheetProps) => {
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [resendIn, setResendIn] = useState(RESEND_SECONDS);
+  const [resending, setResending] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
   const translateY = useSharedValue(600);
@@ -103,30 +116,40 @@ export const OtpSheet = ({ visible, phone, onClose, onVerified }: OtpSheetProps)
     return () => sub.remove();
   }, [visible, requestClose]);
 
+  const shake = useCallback(() => {
+    shakeX.value = withSequence(
+      withTiming(-10, { duration: 50 }),
+      withTiming(10, { duration: 50 }),
+      withTiming(-6, { duration: 50 }),
+      withTiming(6, { duration: 50 }),
+      withTiming(0, { duration: 50 })
+    );
+  }, [shakeX]);
+
   const verify = useCallback(
-    (candidate: string) => {
+    async (candidate: string) => {
       setVerifying(true);
       setError(null);
-      // Simulated network verification — replace with Clerk verify call
-      setTimeout(() => {
-        if (candidate === MOCK_VALID_OTP) {
+      try {
+        const result = await onSubmitCode(candidate);
+        if (result.success) {
           animateOut(onVerified);
         } else {
           setVerifying(false);
           setCode('');
-          setError('That code didn’t match. Please try again.');
-          shakeX.value = withSequence(
-            withTiming(-10, { duration: 50 }),
-            withTiming(10, { duration: 50 }),
-            withTiming(-6, { duration: 50 }),
-            withTiming(6, { duration: 50 }),
-            withTiming(0, { duration: 50 })
-          );
+          setError(result.message);
+          shake();
           inputRef.current?.focus();
         }
-      }, 900);
+      } catch {
+        setVerifying(false);
+        setCode('');
+        setError('Something went wrong verifying that code. Please try again.');
+        shake();
+        inputRef.current?.focus();
+      }
     },
-    [animateOut, onVerified, shakeX]
+    [onSubmitCode, animateOut, onVerified, shake]
   );
 
   const handleChange = (raw: string) => {
@@ -135,6 +158,20 @@ export const OtpSheet = ({ visible, phone, onClose, onVerified }: OtpSheetProps)
     setError(null);
     setConfirmDiscard(false);
     if (digits.length === OTP_LENGTH) verify(digits);
+  };
+
+  const handleResend = async () => {
+    setResending(true);
+    try {
+      await onResend();
+      setResendIn(RESEND_SECONDS);
+      setCode('');
+      setError(null);
+    } catch {
+      setError('Couldn’t resend right now. Please try again shortly.');
+    } finally {
+      setResending(false);
+    }
   };
 
   const sheetStyle = useAnimatedStyle(() => ({
@@ -257,23 +294,16 @@ export const OtpSheet = ({ visible, phone, onClose, onVerified }: OtpSheetProps)
                 <Text className="text-slate-500">Didn’t get it? </Text>
                 {resendIn > 0 ? (
                   <Text className="text-slate-500">Resend in {resendIn}s</Text>
+                ) : resending ? (
+                  <ActivityIndicator size="small" color={COLORS.primaryLight} />
                 ) : (
-                  <Pressable
-                    onPress={() => {
-                      setResendIn(RESEND_SECONDS);
-                      setCode('');
-                      setError(null);
-                    }}
-                    hitSlop={8}
-                  >
+                  <Pressable onPress={handleResend} hitSlop={8}>
                     <Text style={{ color: COLORS.primaryLight }} className="font-semibold">
                       Resend code
                     </Text>
                   </Pressable>
                 )}
               </View>
-
-              <Text className="text-slate-600 text-xs mt-4">Demo build: use code 123456</Text>
             </View>
           </Animated.View>
         </KeyboardAvoidingView>
