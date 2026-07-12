@@ -1,38 +1,41 @@
 # Clerk Setup
 
-The app is wired to real Clerk auth (`@clerk/clerk-expo`): phone OTP and
-Google OAuth. Two things need to be configured on the **Clerk Dashboard**
-side — the code alone isn't enough for Google sign-in to complete.
+The app uses real Clerk auth (`@clerk/clerk-expo`): **Google OAuth only**.
+Phone OTP was removed — see "Why phone auth was removed" below.
 
-## 1. Enable the sign-in methods
+## If Google sign-in hangs after you tap "Allow"
 
-Clerk Dashboard → **User & Authentication**:
-- **Phone number**: enable it as an identifier, with "Phone number
-  verification code" as the verification strategy.
-- **Social connections → Google**: enable it.
+This is almost always one specific thing: **the installed native app
+doesn't know about the `pearldiaries://` URL scheme**, so when Google
+redirects back, the OS has nothing to hand the browser session back to —
+`WebBrowser.openAuthSessionAsync()`'s promise just sits there forever,
+which looks exactly like "stuck, waiting for something."
 
-## 2. Register the OAuth redirect (Google only — phone OTP needs no setup)
+`app.json`'s `"scheme": "pearldiaries"` only takes effect on a **native
+rebuild** — reloading JS via Metro is not enough, because the scheme is
+compiled into the Android manifest / iOS Info.plist as an intent filter.
 
-The app uses Expo's URL scheme `pearldiaries://` (set in `app.json` as
-`"scheme": "pearldiaries"`) as the OAuth callback target. In development,
-`expo-auth-session`'s `makeRedirectUri()` resolves this to:
+**Fix: rebuild the native app after any change to `app.json`'s `scheme`
+or plugins:**
 
+```bash
+npx expo prebuild --clean
+npx expo run:android --device   # or run:ios
 ```
-pearldiaries://oauth-callback
-```
 
-Add that exact URI to **Clerk Dashboard → SSO Connections → Google →
-Authorized redirect URIs** (or the equivalent "Allowed redirect URLs" list
-under your Clerk app's OAuth settings). Without this, Google will complete
-the login but redirect back to a URL Clerk doesn't recognize, and the app
-will hang on "Continue with Google."
+If you already had an `android/`/`ios/` folder from before the scheme was
+added, that's the stale build — `--clean` regenerates it correctly.
 
-If you later run this through Expo Go instead of a development build, the
-redirect resolves to an `exp://` / `auth.expo.io` proxy URL instead — add
-that variant too if you need Expo Go support (development builds, which is
-what this project targets, don't need it).
+## Dashboard configuration
 
-## 3. Environment
+Clerk Dashboard → **User & Authentication → Social connections → Google**
+→ enable it. That's it for native OAuth — Clerk's Expo SDK generates the
+redirect URL itself (`pearldiaries://sso-callback`, derived from
+`app.json`'s scheme) and native app callbacks aren't subject to the same
+exact-match allowlist that web redirect URLs are, so no manual URL entry
+is required for the mobile app.
+
+## Environment
 
 `.env.local` (gitignored) needs:
 
@@ -45,25 +48,33 @@ credential and must never be placed in this repo or bundled into the app —
 it belongs only in the backend's own environment once that service exists
 (see `docs/BACKEND_API.md`).
 
+## Why phone auth was removed
+
+Clerk's phone verification needs an SMS provider (Clerk's built-in Twilio
+integration or your own) configured per-country in the Dashboard — without
+it, `signIn.create({ identifier: phone })` fails with "country not
+supported." Rather than ship a broken control, phone sign-in was removed
+from the UI entirely. To bring it back once SMS is configured:
+
+Clerk Dashboard → **User & Authentication → Phone number** → enable, set
+verification strategy to "Phone number verification code," and configure
+the SMS provider for the countries you need. The client-side logic (try
+`signIn.create`, fall back to `signUp.create` on
+`form_identifier_not_found`, `phone_code` factor + OTP sheet) existed in
+an earlier commit and is a reasonable starting point to restore.
+
 ## What's implemented vs. simulated
 
 | Piece | Status |
 |---|---|
-| Google OAuth (`useOAuth`) | Real Clerk call |
-| Phone sign-in/sign-up + OTP verify/resend (`useSignIn`/`useSignUp`) | Real Clerk call |
+| Google OAuth (`useSSO`) | Real Clerk call |
 | Session persistence (`ClerkProvider` + `expo-secure-store` token cache) | Real — session survives app restarts |
 | "Has this user finished onboarding" (name/DOB/college/gender/events) | **Locally cached** (AsyncStorage, keyed by Clerk user id) — swap for `docs/BACKEND_API.md` #1/#2 once the backend exists |
 
 ## Verifying it works
 
-Typecheck and web bundle both pass (see repo history), which confirms the
-Clerk API calls are structurally correct against the installed SDK's
-types. It has **not** been exercised against live Clerk servers on a
-device — do that by running:
-
-```
-npx expo run:android --device   # or run:ios
-```
-
-and completing both the phone-OTP and Google flows once the Dashboard
-settings above are in place.
+Typecheck and web bundle both pass, which confirms the Clerk API calls are
+structurally correct against the installed SDK's types. That does **not**
+confirm the live OAuth round-trip — a bundle/typecheck can't open a
+browser or receive a deep link. The only real test is a native rebuild +
+device run per the "hangs" section above.

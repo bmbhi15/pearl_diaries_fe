@@ -21,7 +21,6 @@ export interface UserProfile {
 interface Session {
   clerkUserId: string;
   email?: string;
-  phone?: string;
   profile?: UserProfile;
 }
 
@@ -100,7 +99,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     ? {
         clerkUserId: userId,
         email: user?.primaryEmailAddress?.emailAddress ?? undefined,
-        phone: user?.primaryPhoneNumber?.phoneNumber ?? undefined,
         profile,
       }
     : null;

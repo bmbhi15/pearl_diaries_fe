@@ -59,8 +59,8 @@ export const ProfileScreen = () => {
               {profile?.collegeName ?? 'Festival visitor'}
             </Text>
           </View>
-          {session?.phone && (
-            <Text className="text-slate-500 text-xs mt-1">{session.phone}</Text>
+          {session?.email && (
+            <Text className="text-slate-500 text-xs mt-1">{session.email}</Text>
           )}
 
           <View className="flex-row mt-6 w-full px-8 justify-between">
