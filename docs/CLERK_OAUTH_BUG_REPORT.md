@@ -177,6 +177,18 @@ await signIn.reload({ rotatingTokenNonce });
 - ❌ Explicit vs. default `redirectUrl` — same symptom either way
 - ❌ Client-side URL parsing/stripping — ruled out by the two independent
   captures agreeing
+- ❌ `pearldiaries://sso-callback` missing from Dashboard → SSO
+  Connections → Native Applications → "Allowlist for mobile SSO
+  redirect" — added it, retried, identical failure (same bare URL, same
+  `type: 'success'`, same no-session result)
+- ❌ Android app not registered under Dashboard → SSO Connections →
+  Native Applications (package name `com.pearldiaries.app` + debug
+  keystore SHA-256 fingerprint) — registered it, retried, identical
+  failure
+
+Every fix surfaced in the Clerk Dashboard UI has now been tried, each
+verified with a fresh retry and fresh log capture. The symptom has not
+changed once across any of these attempts.
 
 ## What's still unknown (needs Clerk-side investigation)
 
