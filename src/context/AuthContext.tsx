@@ -8,7 +8,7 @@ import React, {
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth as useClerkAuth, useUser } from '@clerk/clerk-expo';
-import { api } from '../utils/api';
+import { api, setAuthTokenGetter } from '../utils/api';
 
 export interface UserProfile {
   name: string;
@@ -47,11 +47,24 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
  * profile) — swap the AsyncStorage calls below for `api.*` then.
  */
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const { isLoaded: authLoaded, isSignedIn, userId, signOut: clerkSignOut } = useClerkAuth();
+  const {
+    isLoaded: authLoaded,
+    isSignedIn,
+    userId,
+    signOut: clerkSignOut,
+    getToken,
+  } = useClerkAuth();
   const { user } = useUser();
 
   const [stage, setStage] = useState<AuthStage>('loading');
   const [profile, setProfile] = useState<UserProfile | undefined>(undefined);
+
+  // Give the plain axios module a way to fetch a live Clerk session token
+  // (getToken only exists via this hook, api.ts can't call it directly).
+  useEffect(() => {
+    setAuthTokenGetter(isSignedIn ? getToken : null);
+    return () => setAuthTokenGetter(null);
+  }, [isSignedIn, getToken]);
 
   // Once Clerk resolves, figure out which stage we're in.
   useEffect(() => {

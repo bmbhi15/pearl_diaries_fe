@@ -1,5 +1,4 @@
 import axios from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -11,30 +10,34 @@ const apiClient = axios.create({
   },
 });
 
-// Interceptor for adding token
+/**
+ * Clerk's session token is only reachable via the useAuth() hook, which
+ * can't be called from a plain module like this one. AuthContext (which
+ * already sits inside ClerkProvider) registers the live getToken function
+ * here on mount so the axios interceptor below can fetch a fresh token
+ * per-request without needing React context itself.
+ */
+type TokenGetter = () => Promise<string | null>;
+let getAuthToken: TokenGetter | null = null;
+
+export const setAuthTokenGetter = (getter: TokenGetter | null) => {
+  getAuthToken = getter;
+};
+
 apiClient.interceptors.request.use(
   async (config) => {
-    const token = await AsyncStorage.getItem('clerkToken');
+    const token = await getAuthToken?.();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-// Interceptor for handling errors
 apiClient.interceptors.response.use(
   (response) => response,
-  async (error) => {
-    if (error.response?.status === 401) {
-      // Handle unauthorized
-      await AsyncStorage.removeItem('clerkToken');
-    }
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
 export const api = {
